@@ -103,7 +103,7 @@ func TestKTime(t *testing.T) {
 		suggar.Fatal(err)
 	}
 
-	ns := uint64(33)
+	ns := uint64(44)
 
 	fncs := Fncs{
 		KtimeGetNS: func() (uint64, error) {

@@ -81,18 +81,13 @@ int test_ex1()
     };
 
     int ret = usebpf_call(&ctx, "kprobe/do_sys_open");
-    if (ret != 0)
-    {
-        return -1;
-    }
+    assert_zero(ret, "unable to call do_sys_open");
 
     u64 tgid = bpf_get_current_pid_tgid();
 
     struct open_data *open_data = bpf_map_lookup_elem(&cache, &tgid);
-    if (!open_data || usebpf_strcmp(open_data->filename, filename) != 0)
-    {
-        return -1;
-    }
+    assert_not_null(open_data, "cache entry not found");
+    assert_strcmp(open_data->filename, filename, "filename not found");
 
     // vfs_open
     struct inode *inode = (struct inode *)usebpf_malloc(sizeof(struct inode));
@@ -107,30 +102,19 @@ int test_ex1()
     ctx.arg0 = (u64)path;
 
     ret = usebpf_call(&ctx, "kprobe/vfs_open");
-    if (ret != 0)
-    {
-        return -1;
-    }
+    assert_zero(ret, "unable to call vfs_open");
 
     u64 ino = 12345;
     char *value = bpf_map_lookup_elem(&inodes, &ino);
-    if (!filename || usebpf_strcmp(value, filename) != 0)
-    {
-        return -1;
-    }
+    assert_not_null(value, "inodes entry not found");
+    assert_strcmp(value, filename, "filename not found");
 
     // ret open syscall
     ret = usebpf_call(&ctx, "kretprobe/do_sys_open");
-    if (ret != 0)
-    {
-        return -1;
-    }
+    assert_zero(ret, "unable to call do_sys_open");
 
     open_data = bpf_map_lookup_elem(&cache, &tgid);
-    if (open_data)
-    {
-        return -1;
-    }
+    assert_null(open_data, "cache entry found");
 
     return 0;
 }

@@ -17,6 +17,7 @@ limitations under the License.
 package usebpf
 
 import (
+	"bytes"
 	"errors"
 	"regexp"
 	"strings"
@@ -31,10 +32,32 @@ const (
 	// static int (*usebpf_call)(struct usebpf_ctx *ctx, const char *section) = (void *) 0xfffe;
 	FnCall = asm.BuiltinFunc(0xfffe)
 
-	// static int (*usebpf_strcmp)(const char *str1, const char *str2) = (void *)0xfffd;
+	// static int (*usebpf_strcmp)(const char *s1, const char *s2) = (void *)0xfffd;
 	FnStrCmp = asm.BuiltinFunc(0xfffd)
 
-	// TODO add assert for testing. It will check with a message and return an vm exception
+	// static int (*usebpf_memcmp)(const void *b1, const void *b2, __u32 size) = (void *)0xfffc;
+	FnMemCmp = asm.BuiltinFunc(0xfffc)
+)
+
+var (
+	builtInFunc = map[asm.BuiltinFunc]func(*VM, *asm.Instruction) error{
+		// extensions
+		FnMalloc: FnMallocImpl,
+		FnCall:   FnCallImpl,
+		FnStrCmp: FnStrCmpImpl,
+		FnMemCmp: FnMemCmpImpl,
+
+		// bpf helpers
+		asm.FnTracePrintk:       FnTracePrintkImpl,
+		asm.FnGetCurrentPidTgid: FnGetCurrentPidTgidImpl,
+		asm.FnKtimeGetNs:        FnKtimeGetNsImpl,
+		asm.FnMapLookupElem:     FnMapLookupElemImpl,
+		asm.FnMapUpdateElem:     FnMapUpdateElemImpl,
+		asm.FnMapDeleteElem:     FnMapDeleteElemImpl,
+		asm.FnPerfEventOutput:   FnPerfEventOutputImpl,
+		asm.FnProbeRead:         FnProbeReadImpl,
+		asm.FnProbeReadStr:      FnProbeReadStrImpl,
+	}
 )
 
 func FnMallocImpl(vm *VM, inst *asm.Instruction) error {
@@ -72,17 +95,39 @@ func FnStrCmpImpl(vm *VM, inst *asm.Instruction) error {
 	code := ErrorCode
 	vm.regs[asm.R0] = uint64(code)
 
-	str1, err := vm.getString(vm.regs[asm.R1])
+	s1, err := vm.getString(vm.regs[asm.R1])
 	if err != nil {
 		return err
 	}
 
-	str2, err := vm.getString(vm.regs[asm.R2])
+	s2, err := vm.getString(vm.regs[asm.R2])
 	if err != nil {
 		return err
 	}
 
-	ret := strings.Compare(str1, str2)
+	ret := strings.Compare(s1, s2)
+	vm.regs[asm.R0] = uint64(ret)
+
+	return nil
+}
+
+func FnMemCmpImpl(vm *VM, inst *asm.Instruction) error {
+	code := ErrorCode
+	vm.regs[asm.R0] = uint64(code)
+
+	size := vm.regs[asm.R3]
+
+	b1, err := vm.getBytes(vm.regs[asm.R1], uint64(size))
+	if err != nil {
+		return err
+	}
+
+	b2, err := vm.getBytes(vm.regs[asm.R2], uint64(size))
+	if err != nil {
+		return err
+	}
+
+	ret := bytes.Compare(b1, b2)
 	vm.regs[asm.R0] = uint64(ret)
 
 	return nil

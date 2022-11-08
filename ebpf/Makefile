@@ -5,6 +5,8 @@ all: $(PROGS)
 
 src/%.c: include/usebpf.h
 
+#-g -S
+
 bin/%.o: src/%.c
 	mkdir -p bin
 	clang-12 -D__KERNEL__ -D__ASM_SYSREG_H -D__USEBPF__ \

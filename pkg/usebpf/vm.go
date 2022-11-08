@@ -30,30 +30,9 @@ const (
 	ErrorCode = int(-1)
 )
 
-var (
-	builtInFunc = map[asm.BuiltinFunc]func(*VM, *asm.Instruction) error{
-		// extensions
-		FnMalloc: FnMallocImpl,
-		FnCall:   FnCallImpl,
-		FnStrCmp: FnStrCmpImpl,
-
-		// bpf helpers
-		asm.FnTracePrintk:       FnTracePrintkImpl,
-		asm.FnGetCurrentPidTgid: FnGetCurrentPidTgidImpl,
-		asm.FnKtimeGetNs:        FnKtimeGetNsImpl,
-		asm.FnMapLookupElem:     FnMapLookupElemImpl,
-		asm.FnMapUpdateElem:     FnMapUpdateElemImpl,
-		asm.FnMapDeleteElem:     FnMapDeleteElemImpl,
-		asm.FnPerfEventOutput:   FnPerfEventOutputImpl,
-		asm.FnProbeRead:         FnProbeReadImpl,
-		asm.FnProbeReadStr:      FnProbeReadStrImpl,
-	}
-)
-
 type vmState struct {
 	regs  Regs
 	stack []byte
-	pc    int
 }
 
 type VM struct {
@@ -62,7 +41,6 @@ type VM struct {
 	stack []byte
 	heap  *Heap
 	regs  Regs
-	pc    int
 	fncs  map[asm.BuiltinFunc]func(*VM, *asm.Instruction) error
 	strs  map[string]uint64
 	maps  *MapCollection
@@ -92,14 +70,12 @@ func (vm *VM) saveState() *vmState {
 	return &vmState{
 		stack: stack,
 		regs:  vm.regs,
-		pc:    vm.pc,
 	}
 }
 
 func (vm *VM) loadState(state *vmState) {
 	vm.stack = state.stack
 	vm.regs = state.regs
-	vm.pc = state.pc
 }
 
 func (vm *VM) Map(name string) *Map {
@@ -256,6 +232,20 @@ func (vm *VM) initFncs() {
 	}
 }
 
+func getNormalizedInsts(prog *ebpf.ProgramSpec) []asm.Instruction {
+	var insts []asm.Instruction
+
+	for _, inst := range prog.Instructions {
+		insts = append(insts, inst)
+		if inst.Size() > 8 {
+			// add a placeholder nop instruction
+			insts = append(insts, asm.Instruction{})
+		}
+	}
+
+	return insts
+}
+
 func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 	var prog *ebpf.ProgramSpec
 	for _, p := range vm.Spec.Programs {
@@ -275,7 +265,6 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 	}()
 
 	// new state
-	vm.pc = 0
 	vm.stack = make([]byte, vm.Opts.StackSize)
 	vm.regs[asm.RFP] = uint64(len(vm.stack))
 	vm.regs[asm.R1] = vm.heap.AllocWith(ctx.Bytes())
@@ -284,13 +273,14 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 		return ErrorCode, err
 	}
 
-	for pc, inst := range prog.Instructions {
-		vm.Opts.Logger.Debugf("%d > %v", pc, inst)
+	insts := getNormalizedInsts(prog)
 
-		if pc != vm.pc {
-			continue
-		}
-		vm.pc++
+	var pc int
+	for pc != len(insts) {
+		inst := insts[pc]
+
+		vm.Opts.Logger.Debugf("%d > %v (%d)", pc, inst, inst.Size())
+		pc += int(inst.Size() / 8)
 
 		switch inst.OpCode {
 		//
@@ -369,13 +359,13 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 		//
 		case asm.JEq.Op(asm.ImmSource):
 			if vm.regs[inst.Dst] == uint64(inst.Constant) {
-				vm.pc = pc + int(inst.Offset)
+				pc += int(inst.Offset)
 			}
 		case asm.Ja.Op(asm.ImmSource):
-			pc = vm.pc + int(inst.Offset)
+			pc += int(inst.Offset)
 		case asm.JNE.Op(asm.ImmSource):
 			if vm.regs[inst.Dst] != uint64(inst.Constant) {
-				vm.pc = pc + int(inst.Offset)
+				pc += int(inst.Offset)
 			}
 
 		//
