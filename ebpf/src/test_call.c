@@ -35,27 +35,27 @@ int BPF_KRETPROBE(kretprobe_vfs_open, int ret)
     return 0;
 }
 
-#ifdef __USEBPF__
+#ifdef __BALOUM__
 
-#include "usebpf.h"
+#include "baloum.h"
 
 SEC("test/simple_call")
 int test_simple_call()
 {
-    struct inode *inode = (struct inode *)usebpf_malloc(sizeof(struct inode));
+    struct inode *inode = (struct inode *)baloum_malloc(sizeof(struct inode));
     inode->i_ino = 12345;
 
-    struct dentry *dentry = (struct dentry *)usebpf_malloc(sizeof(struct dentry));
+    struct dentry *dentry = (struct dentry *)baloum_malloc(sizeof(struct dentry));
     dentry->d_inode = inode;
 
-    struct path *path = (struct path *)usebpf_malloc(sizeof(struct path));
+    struct path *path = (struct path *)baloum_malloc(sizeof(struct path));
     path->dentry = dentry;
 
-    struct usebpf_ctx ctx = {
+    struct baloum_ctx ctx = {
         .arg0 = (u64)path,
     };
 
-    int ret = usebpf_call(&ctx, "kprobe/vfs_open");
+    int ret = baloum_call(&ctx, "kprobe/vfs_open");
     if (ret != 0)
     {
         return -1;
@@ -67,9 +67,9 @@ int test_simple_call()
 SEC("test/nested_call")
 int test_all()
 {
-    struct usebpf_ctx ctx = {};
+    struct baloum_ctx ctx = {};
 
-    int ret = usebpf_call(&ctx, "test/simple_call");
+    int ret = baloum_call(&ctx, "test/simple_call");
     if (ret != 0)
     {
         return -1;
@@ -83,7 +83,7 @@ int test_all()
         return -1;
     }
 
-    ret = usebpf_call(&ctx, "kretprobe/vfs_open");
+    ret = baloum_call(&ctx, "kretprobe/vfs_open");
     if (ret != 0)
     {
         return -1;

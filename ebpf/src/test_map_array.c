@@ -1,8 +1,8 @@
 #include "all.h"
 
-#ifdef __USEBPF__
+#ifdef __baloum__
 
-#include "usebpf.h"
+#include "baloum.h"
 
 struct bpf_map_def SEC("maps/cache") cache = {
     .type = BPF_MAP_TYPE_ARRAY,

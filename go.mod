@@ -1,4 +1,4 @@
-module github.com/safchain/usebpf
+module github.com/safchain/baloum
 
 go 1.18
 

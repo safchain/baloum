@@ -21,7 +21,7 @@ import (
 	"os"
 
 	"github.com/cilium/ebpf"
-	"github.com/safchain/usebpf/pkg/usebpf"
+	"github.com/safchain/baloum/pkg/baloum"
 	"go.uber.org/zap"
 )
 
@@ -86,7 +86,7 @@ func main() {
 
 	tgid := uint64(33)
 
-	fncs := usebpf.Fncs{
+	fncs := baloum.Fncs{
 		GetCurrentPidTgid: func() (uint64, error) {
 			return tgid, nil
 		},
@@ -95,9 +95,9 @@ func main() {
 		},
 	}
 
-	vm := usebpf.NewVM(spec, usebpf.Opts{Fncs: fncs, Logger: suggar})
+	vm := baloum.NewVM(spec, baloum.Opts{Fncs: fncs, Logger: suggar})
 
-	var ctx usebpf.Context
+	var ctx baloum.Context
 
 	code, err := vm.RunProgram(ctx, "test/ex1")
 	if err != nil || code != 0 {

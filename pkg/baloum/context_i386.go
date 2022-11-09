@@ -14,33 +14,16 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package usebpf
+package baloum
 
-import "github.com/cilium/ebpf/asm"
+func (ctx *Context) Bytes() []byte {
+	data := make([]byte, 168)
 
-const (
-	DEFAULT_STACK_SIZE = 512
-)
+	ByteOrder.PutUint64(data[112:], ctx.Arg0)
+	ByteOrder.PutUint64(data[104:], ctx.Arg1)
+	ByteOrder.PutUint64(data[96:], ctx.Arg2)
+	ByteOrder.PutUint64(data[88:], ctx.Arg3)
+	ByteOrder.PutUint64(data[72:], ctx.Arg4)
 
-type Fncs struct {
-	GetCurrentPidTgid func() (uint64, error)
-	KtimeGetNS        func() (uint64, error)
-	TracePrintk       func(format string, args ...interface{})
-}
-
-type Opts struct {
-	StackSize int
-	Fncs      Fncs
-	RawFncs   map[asm.BuiltinFunc]func(*VM, *asm.Instruction) error
-	Logger    Logger
-}
-
-func (o *Opts) applyDefault() {
-	if o.StackSize == 0 {
-		o.StackSize = DEFAULT_STACK_SIZE
-	}
-
-	if o.Logger == nil {
-		o.Logger = &NullLogger{}
-	}
+	return data
 }

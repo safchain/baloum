@@ -14,16 +14,39 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package usebpf
+package baloum
 
-func (ctx *Context) Bytes() []byte {
-	data := make([]byte, 168)
+import "errors"
 
-	ByteOrder.PutUint64(data[112:], ctx.Arg0)
-	ByteOrder.PutUint64(data[104:], ctx.Arg1)
-	ByteOrder.PutUint64(data[96:], ctx.Arg2)
-	ByteOrder.PutUint64(data[88:], ctx.Arg3)
-	ByteOrder.PutUint64(data[72:], ctx.Arg4)
+const (
+	REGS_NUM  = 11
+	REGS_SIZE = REGS_NUM * 8
+)
+
+type Regs [REGS_NUM]uint64
+
+func (r *Regs) Parse(data []byte) error {
+	if len(data) < REGS_SIZE {
+		return errors.New("not enough data")
+	}
+
+	var offset int
+	for i := range r {
+		r[i] = ByteOrder.Uint64(data[offset : offset+8])
+		offset += 8
+	}
+
+	return nil
+}
+
+func (r *Regs) Bytes() []byte {
+	data := make([]byte, REGS_SIZE)
+
+	var offset int
+	for _, reg := range r {
+		ByteOrder.PutUint64(data[offset:offset+8], reg)
+		offset += 8
+	}
 
 	return data
 }

@@ -14,39 +14,33 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package usebpf
+package baloum
 
-import "errors"
+import "github.com/cilium/ebpf/asm"
 
 const (
-	REGS_NUM  = 11
-	REGS_SIZE = REGS_NUM * 8
+	DEFAULT_STACK_SIZE = 512
 )
 
-type Regs [REGS_NUM]uint64
-
-func (r *Regs) Parse(data []byte) error {
-	if len(data) < REGS_SIZE {
-		return errors.New("not enough data")
-	}
-
-	var offset int
-	for i := range r {
-		r[i] = ByteOrder.Uint64(data[offset : offset+8])
-		offset += 8
-	}
-
-	return nil
+type Fncs struct {
+	GetCurrentPidTgid func() (uint64, error)
+	KtimeGetNS        func() (uint64, error)
+	TracePrintk       func(format string, args ...interface{})
 }
 
-func (r *Regs) Bytes() []byte {
-	data := make([]byte, REGS_SIZE)
+type Opts struct {
+	StackSize int
+	Fncs      Fncs
+	RawFncs   map[asm.BuiltinFunc]func(*VM, *asm.Instruction) error
+	Logger    Logger
+}
 
-	var offset int
-	for _, reg := range r {
-		ByteOrder.PutUint64(data[offset:offset+8], reg)
-		offset += 8
+func (o *Opts) applyDefault() {
+	if o.StackSize == 0 {
+		o.StackSize = DEFAULT_STACK_SIZE
 	}
 
-	return data
+	if o.Logger == nil {
+		o.Logger = &NullLogger{}
+	}
 }

@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package usebpf
+package baloum
 
 import (
 	"bytes"
@@ -26,16 +26,16 @@ import (
 )
 
 const (
-	// static void *(*usebpf_malloc)(__u32 size) = (void *) 0xffff;
+	// static void *(*baloum_malloc)(__u32 size) = (void *) 0xffff;
 	FnMalloc = asm.BuiltinFunc(0xffff)
 
-	// static int (*usebpf_call)(struct usebpf_ctx *ctx, const char *section) = (void *) 0xfffe;
+	// static int (*baloum_call)(struct baloum_ctx *ctx, const char *section) = (void *) 0xfffe;
 	FnCall = asm.BuiltinFunc(0xfffe)
 
-	// static int (*usebpf_strcmp)(const char *s1, const char *s2) = (void *)0xfffd;
+	// static int (*baloum_strcmp)(const char *s1, const char *s2) = (void *)0xfffd;
 	FnStrCmp = asm.BuiltinFunc(0xfffd)
 
-	// static int (*usebpf_memcmp)(const void *b1, const void *b2, __u32 size) = (void *)0xfffc;
+	// static int (*baloum_memcmp)(const void *b1, const void *b2, __u32 size) = (void *)0xfffc;
 	FnMemCmp = asm.BuiltinFunc(0xfffc)
 )
 

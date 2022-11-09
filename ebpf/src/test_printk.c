@@ -1,8 +1,8 @@
 #include "all.h"
 
-#ifdef __USEBPF__
+#ifdef __BALOUM__
 
-#include "usebpf.h"
+#include "baloum.h"
 
 struct event
 {

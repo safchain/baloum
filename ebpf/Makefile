@@ -3,13 +3,13 @@ PROGS = $(patsubst src/%.c, bin/%.o, $(SRCS))
 
 all: $(PROGS)
 
-src/%.c: include/usebpf.h
+src/%.c: include/baloum.h
 
 #-g -S
 
 bin/%.o: src/%.c
 	mkdir -p bin
-	clang-12 -D__KERNEL__ -D__ASM_SYSREG_H -D__USEBPF__ \
+	clang-12 -D__KERNEL__ -D__ASM_SYSREG_H -D__BALOUM__ \
 		-Wno-unused-value \
 		-Wno-pointer-sign \
 		-Wno-compare-distinct-pointer-types \

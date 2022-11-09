@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package usebpf
+package baloum
 
 import (
 	"errors"
@@ -25,7 +25,7 @@ const (
 )
 
 /*
-struct usebpf_ctx {
+struct baloum_ctx {
 	u64 arg0;
 	u64 arg1;
 	u64 arg2;

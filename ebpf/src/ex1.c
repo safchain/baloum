@@ -67,20 +67,20 @@ int BPF_KRETPROBE(kretprobe_do_sys_open, int ret)
     return 0;
 }
 
-#ifdef __USEBPF__
+#ifdef __BALOUM__
 
-#include "usebpf.h"
+#include "baloum.h"
 
 SEC("test/ex1")
 int test_ex1()
 {
     // enter open syscall
     char *filename = "/etc/passwd";
-    struct usebpf_ctx ctx = {
+    struct baloum_ctx ctx = {
         .arg1 = (u64)filename,
     };
 
-    int ret = usebpf_call(&ctx, "kprobe/do_sys_open");
+    int ret = baloum_call(&ctx, "kprobe/do_sys_open");
     assert_zero(ret, "unable to call do_sys_open");
 
     u64 tgid = bpf_get_current_pid_tgid();
@@ -90,18 +90,18 @@ int test_ex1()
     assert_strcmp(open_data->filename, filename, "filename not found");
 
     // vfs_open
-    struct inode *inode = (struct inode *)usebpf_malloc(sizeof(struct inode));
+    struct inode *inode = (struct inode *)baloum_malloc(sizeof(struct inode));
     inode->i_ino = 12345;
 
-    struct dentry *dentry = (struct dentry *)usebpf_malloc(sizeof(struct dentry));
+    struct dentry *dentry = (struct dentry *)baloum_malloc(sizeof(struct dentry));
     dentry->d_inode = inode;
 
-    struct path *path = (struct path *)usebpf_malloc(sizeof(struct path));
+    struct path *path = (struct path *)baloum_malloc(sizeof(struct path));
     path->dentry = dentry;
 
     ctx.arg0 = (u64)path;
 
-    ret = usebpf_call(&ctx, "kprobe/vfs_open");
+    ret = baloum_call(&ctx, "kprobe/vfs_open");
     assert_zero(ret, "unable to call vfs_open");
 
     u64 ino = 12345;
@@ -110,7 +110,7 @@ int test_ex1()
     assert_strcmp(value, filename, "filename not found");
 
     // ret open syscall
-    ret = usebpf_call(&ctx, "kretprobe/do_sys_open");
+    ret = baloum_call(&ctx, "kretprobe/do_sys_open");
     assert_zero(ret, "unable to call do_sys_open");
 
     open_data = bpf_map_lookup_elem(&cache, &tgid);
