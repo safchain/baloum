@@ -16,7 +16,9 @@ limitations under the License.
 
 package baloum
 
-import "errors"
+import (
+	"errors"
+)
 
 type MapArrayStorage struct {
 	vm         *VM
@@ -73,7 +75,7 @@ func (m *MapArrayStorage) Write(data []byte) error {
 	return errors.New("operation not supported")
 }
 
-func NewMapArrayStorage(vm *VM, id int, keySize, valueSize, maxEntries, flags uint32) (MapStorage, error) {
+func NewMapArrayStorage(vm *VM, keySize, valueSize, maxEntries, flags uint32) (MapStorage, error) {
 	data := make([]uint64, maxEntries)
 	for i := range data {
 		data[i] = vm.heap.Alloc(int(valueSize))

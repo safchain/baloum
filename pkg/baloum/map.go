@@ -141,9 +141,8 @@ func (mc *MapCollection) LoadMap(spec *ebpf.CollectionSpec, name string) error {
 		}
 
 		var err error
-
-		id := len(mc.mapById)
 		_map := &Map{
+			id:        len(mc.mapById),
 			vm:        mc.vm,
 			keySize:   m.KeySize,
 			valueSize: m.ValueSize,
@@ -151,28 +150,27 @@ func (mc *MapCollection) LoadMap(spec *ebpf.CollectionSpec, name string) error {
 
 		switch m.Type {
 		case ebpf.Array:
-			fmt.Printf("ZZZZZ\n")
-			_map.storage, err = NewMapArrayStorage(mc.vm, id, m.KeySize, m.ValueSize, m.MaxEntries, m.Flags)
+			_map.storage, err = NewMapArrayStorage(mc.vm, m.KeySize, m.ValueSize, m.MaxEntries, m.Flags)
 			if err != nil {
 				return err
 			}
 		case ebpf.Hash:
-			_map.storage, err = NewMapHashStorage(mc.vm, id, m.KeySize, m.ValueSize, m.MaxEntries, m.Flags)
+			_map.storage, err = NewMapHashStorage(mc.vm, m.KeySize, m.ValueSize, m.MaxEntries, m.Flags)
 			if err != nil {
 				return err
 			}
 		case ebpf.LRUHash:
-			_map.storage, err = NewMapLRUStorage(mc.vm, id, m.KeySize, m.ValueSize, m.MaxEntries, m.Flags)
+			_map.storage, err = NewMapLRUStorage(mc.vm, m.KeySize, m.ValueSize, m.MaxEntries, m.Flags)
 			if err != nil {
 				return err
 			}
 		case ebpf.PerfEventArray:
-			_map.storage, err = NewMapPerfStorage(mc.vm, id, m.KeySize, m.ValueSize, m.MaxEntries, m.Flags)
+			_map.storage, err = NewMapPerfStorage(mc.vm, m.KeySize, m.ValueSize, m.MaxEntries, m.Flags)
 			if err != nil {
 				return err
 			}
 		case ebpf.PerCPUArray:
-			_map.storage, err = NewMapPerCPUArrayStorage(mc.vm, id, m.KeySize, m.ValueSize, m.MaxEntries, m.Flags)
+			_map.storage, err = NewMapPerCPUArrayStorage(mc.vm, m.KeySize, m.ValueSize, m.MaxEntries, m.Flags)
 			if err != nil {
 				return err
 			}

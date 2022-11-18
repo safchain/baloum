@@ -75,7 +75,7 @@ func (m *MapLRUStorage) Write(data []byte) error {
 	return errors.New("operation not supported")
 }
 
-func NewMapLRUStorage(vm *VM, id int, keySize, valueSize, maxEntries, flags uint32) (MapStorage, error) {
+func NewMapLRUStorage(vm *VM, keySize, valueSize, maxEntries, flags uint32) (MapStorage, error) {
 	cache, err := lru.NewWithEvict(int(maxEntries), func(key, value interface{}) {
 		vm.heap.Free(value.(uint64))
 	})

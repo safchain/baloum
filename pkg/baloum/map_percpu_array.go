@@ -43,8 +43,19 @@ func (m *MapPerCPUArrayStorage) getCPU() (uint32, error) {
 }
 
 func (m *MapPerCPUArrayStorage) Lookup(key []byte) (uint64, error) {
-	idx := ByteOrder.Uint64(key)
-	if int(idx) > len(m.data) {
+	var idx int
+	switch len(key) {
+	case 2:
+		idx = int(ByteOrder.Uint16(key))
+	case 4:
+		idx = int(ByteOrder.Uint32(key))
+	case 8:
+		idx = int(ByteOrder.Uint64(key))
+	default:
+		return 0, errors.New("incorrect key size")
+	}
+
+	if idx > len(m.data) {
 		return 0, errors.New("out of bound")
 	}
 
@@ -89,7 +100,7 @@ func (m *MapPerCPUArrayStorage) Write(data []byte) error {
 	return errors.New("operation not supported")
 }
 
-func NewMapPerCPUArrayStorage(vm *VM, id int, keySize, valueSize, maxEntries, flags uint32) (MapStorage, error) {
+func NewMapPerCPUArrayStorage(vm *VM, keySize, valueSize, maxEntries, flags uint32) (MapStorage, error) {
 	data := make(map[uint32][]uint64, maxEntries)
 	for cpu := uint32(0); cpu != uint32(vm.Opts.CPUs); cpu++ {
 		entries := make([]uint64, maxEntries)

@@ -52,7 +52,7 @@ func (m *MapPerfStorage) Write(data []byte) error {
 	return nil
 }
 
-func NewMapPerfStorage(vm *VM, id int, keySize, valueSize, maxEntries, flags uint32) (MapStorage, error) {
+func NewMapPerfStorage(vm *VM, keySize, valueSize, maxEntries, flags uint32) (MapStorage, error) {
 	return &MapPerfStorage{
 		vm:   vm,
 		data: make(chan []byte, 1000),

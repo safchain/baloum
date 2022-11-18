@@ -16,7 +16,9 @@ limitations under the License.
 
 package baloum
 
-import "errors"
+import (
+	"errors"
+)
 
 type MapHashStorage struct {
 	vm         *VM
@@ -72,7 +74,7 @@ func (m *MapHashStorage) Write(data []byte) error {
 	return errors.New("operation not supported")
 }
 
-func NewMapHashStorage(vm *VM, id int, keySize, valueSize, maxEntries, flags uint32) (MapStorage, error) {
+func NewMapHashStorage(vm *VM, keySize, valueSize, maxEntries, flags uint32) (MapStorage, error) {
 	return &MapHashStorage{
 		vm:         vm,
 		maxEntries: maxEntries,

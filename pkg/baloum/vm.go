@@ -124,6 +124,24 @@ func (vm *VM) getUint64(addr uint64) (uint64, error) {
 	return ByteOrder.Uint64(bytes), nil
 }
 
+func (vm *VM) getUint32(addr uint64) (uint32, error) {
+	bytes, err := vm.getBytes(addr, 4)
+	if err != nil {
+		return 0, err
+	}
+
+	return ByteOrder.Uint32(bytes), nil
+}
+
+func (vm *VM) getUint16(addr uint64) (uint16, error) {
+	bytes, err := vm.getBytes(addr, 2)
+	if err != nil {
+		return 0, err
+	}
+
+	return ByteOrder.Uint16(bytes), nil
+}
+
 func (vm *VM) getString(addr uint64) (string, error) {
 	data, addr, err := vm.getMem(addr)
 	if err != nil {
@@ -293,6 +311,20 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 				return ErrorCode, err
 			}
 			vm.regs[inst.Dst] = value
+		case asm.LoadMemOp(asm.Word):
+			srcAddr := vm.regs[inst.Src] + uint64(inst.Offset)
+			value, err := vm.getUint32(srcAddr)
+			if err != nil {
+				return ErrorCode, err
+			}
+			vm.regs[inst.Dst] = uint64(value)
+		case asm.LoadMemOp(asm.Half):
+			srcAddr := vm.regs[inst.Src] + uint64(inst.Offset)
+			value, err := vm.getUint16(srcAddr)
+			if err != nil {
+				return ErrorCode, err
+			}
+			vm.regs[inst.Dst] = uint64(value)
 
 		//
 		case asm.LoadImmOp(asm.DWord):
