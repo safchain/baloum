@@ -148,7 +148,7 @@ func FnTracePrintkImpl(vm *VM, inst *asm.Instruction) error {
 		return errors.New("number of placeholder exceeded")
 	} else if len(phs) == 0 {
 		if vm.Opts.Fncs.TracePrintk != nil {
-			vm.Opts.Fncs.TracePrintk(format)
+			vm.Opts.Fncs.TracePrintk(vm, format)
 		}
 		return nil
 	}
@@ -180,7 +180,7 @@ func FnTracePrintkImpl(vm *VM, inst *asm.Instruction) error {
 	}
 
 	if vm.Opts.Fncs.TracePrintk != nil {
-		vm.Opts.Fncs.TracePrintk(format, values...)
+		vm.Opts.Fncs.TracePrintk(vm, format, values...)
 	}
 
 	return nil
@@ -230,7 +230,7 @@ func FnProbeReadStrImpl(vm *VM, inst *asm.Instruction) error {
 func FnGetCurrentPidTgidImpl(vm *VM, inst *asm.Instruction) error {
 	vm.regs[asm.R0] = 0
 	if vm.Opts.Fncs.GetCurrentPidTgid != nil {
-		value, err := vm.Opts.Fncs.GetCurrentPidTgid()
+		value, err := vm.Opts.Fncs.GetCurrentPidTgid(vm)
 		if err != nil {
 			return err
 		}
@@ -242,7 +242,7 @@ func FnGetCurrentPidTgidImpl(vm *VM, inst *asm.Instruction) error {
 func FnKtimeGetNsImpl(vm *VM, inst *asm.Instruction) error {
 	vm.regs[asm.R0] = 0
 	if vm.Opts.Fncs.KtimeGetNS != nil {
-		value, err := vm.Opts.Fncs.KtimeGetNS()
+		value, err := vm.Opts.Fncs.KtimeGetNS(vm)
 		if err != nil {
 			return err
 		}

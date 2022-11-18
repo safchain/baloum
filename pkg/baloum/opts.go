@@ -23,9 +23,9 @@ const (
 )
 
 type Fncs struct {
-	GetCurrentPidTgid func() (uint64, error)
-	KtimeGetNS        func() (uint64, error)
-	TracePrintk       func(format string, args ...interface{})
+	GetCurrentPidTgid func(vm *VM) (uint64, error)
+	KtimeGetNS        func(vm *VM) (uint64, error)
+	TracePrintk       func(vm *VM, format string, args ...interface{})
 }
 
 type Opts struct {

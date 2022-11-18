@@ -46,7 +46,7 @@ func TestCall(t *testing.T) {
 	tgid := uint64(33)
 
 	fncs := Fncs{
-		GetCurrentPidTgid: func() (uint64, error) {
+		GetCurrentPidTgid: func(vm *VM) (uint64, error) {
 			return tgid, nil
 		},
 	}
@@ -106,7 +106,7 @@ func TestKTime(t *testing.T) {
 	ns := uint64(44)
 
 	fncs := Fncs{
-		KtimeGetNS: func() (uint64, error) {
+		KtimeGetNS: func(vm *VM) (uint64, error) {
 			return ns, nil
 		},
 	}
@@ -173,7 +173,7 @@ func TestPrintk(t *testing.T) {
 	var printed string
 
 	fncs := Fncs{
-		TracePrintk: func(format string, args ...interface{}) {
+		TracePrintk: func(vm *VM, format string, args ...interface{}) {
 			printed = fmt.Sprintf(format, args...)
 		},
 	}

@@ -87,10 +87,10 @@ func main() {
 	tgid := uint64(33)
 
 	fncs := baloum.Fncs{
-		GetCurrentPidTgid: func() (uint64, error) {
+		GetCurrentPidTgid: func(vm *baloum.VM) (uint64, error) {
 			return tgid, nil
 		},
-		TracePrintk: func(format string, args ...interface{}) {
+		TracePrintk: func(vm *baloum.VM, format string, args ...interface{}) {
 			suggar.Debugf(format, args...)
 		},
 	}
