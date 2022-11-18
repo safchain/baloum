@@ -389,6 +389,8 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 		//
 		case asm.Add.Op(asm.ImmSource):
 			vm.regs[inst.Dst] += uint64(inst.Constant)
+		case asm.And.Op(asm.ImmSource):
+			vm.regs[inst.Dst] &= uint64(inst.Constant)
 
 		//
 		case asm.JEq.Op(asm.ImmSource):
@@ -399,6 +401,10 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 			pc += int(inst.Offset)
 		case asm.JNE.Op(asm.ImmSource):
 			if vm.regs[inst.Dst] != uint64(inst.Constant) {
+				pc += int(inst.Offset)
+			}
+		case asm.JNE.Op(asm.RegSource):
+			if vm.regs[inst.Dst] != vm.regs[inst.Src] {
 				pc += int(inst.Offset)
 			}
 

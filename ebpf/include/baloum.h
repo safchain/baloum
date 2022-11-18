@@ -40,7 +40,14 @@ static int (*baloum_memcmp)(const void *b1, const void *b2, __u32 size) = (void 
 #define assert_zero(v1, msg)                                           \
     if (v1 != 0)                                                       \
     {                                                                  \
-        bpf_printk("assert line %d : v1 == NULL : %s", __LINE__, msg); \
+        bpf_printk("assert line %d : v1 == 0 : %s", __LINE__, msg);    \
+        return -1;                                                     \
+    }
+
+#define assert_not_zero(v1, msg)                                       \
+    if (v1 == 0)                                                       \
+    {                                                                  \
+        bpf_printk("assert line %d : v1 != 0 : %s", __LINE__, msg);    \
         return -1;                                                     \
     }
 
