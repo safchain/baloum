@@ -19,9 +19,8 @@ package baloum
 import "errors"
 
 type MapHashStorage struct {
-	heap       *Heap
+	vm         *VM
 	maxEntries uint32
-	flags      uint32
 	data       map[string]uint64
 }
 
@@ -39,16 +38,16 @@ func (m *MapHashStorage) Update(key []byte, value []byte, kind MapUpdateType) (b
 		if kind == BPF_NOEXIST {
 			return false, nil
 		}
-		m.heap.Free(addr)
+		m.vm.heap.Free(addr)
 	}
-	m.data[string(key)] = m.heap.AllocWith(value)
+	m.data[string(key)] = m.vm.heap.AllocWith(value)
 
 	return true, nil
 }
 
 func (m *MapHashStorage) Delete(key []byte) (bool, error) {
 	if addr, exists := m.data[string(key)]; exists {
-		m.heap.Free(addr)
+		m.vm.heap.Free(addr)
 		delete(m.data, string(key))
 		return true, nil
 	}
@@ -73,9 +72,9 @@ func (m *MapHashStorage) Write(data []byte) error {
 	return errors.New("operation not supported")
 }
 
-func NewMapHashStorage(id int, heap *Heap, keySize, valueSize, maxEntries, flags uint32) (MapStorage, error) {
+func NewMapHashStorage(vm *VM, id int, keySize, valueSize, maxEntries, flags uint32) (MapStorage, error) {
 	return &MapHashStorage{
-		heap:       heap,
+		vm:         vm,
 		maxEntries: maxEntries,
 		data:       make(map[string]uint64),
 	}, nil

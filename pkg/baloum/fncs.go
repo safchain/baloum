@@ -57,8 +57,23 @@ var (
 		asm.FnPerfEventOutput:   FnPerfEventOutputImpl,
 		asm.FnProbeRead:         FnProbeReadImpl,
 		asm.FnProbeReadStr:      FnProbeReadStrImpl,
+		asm.FnGetSmpProcessorId: FnGetSmpProcessorIdImpl,
 	}
 )
+
+func FnGetSmpProcessorIdImpl(vm *VM, inst *asm.Instruction) error {
+	vm.regs[asm.R0] = 0
+
+	if vm.Opts.Fncs.GetSmpProcessorId != nil {
+		id, err := vm.Opts.Fncs.GetSmpProcessorId(vm)
+		if err != nil {
+			return err
+		}
+		vm.regs[asm.R0] = id
+	}
+
+	return nil
+}
 
 func FnMallocImpl(vm *VM, inst *asm.Instruction) error {
 	vm.regs[asm.R0] = vm.heap.AllocWith(make([]byte, vm.regs[asm.R1]))

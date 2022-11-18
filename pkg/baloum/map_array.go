@@ -19,15 +19,26 @@ package baloum
 import "errors"
 
 type MapArrayStorage struct {
-	heap       *Heap
+	vm         *VM
 	maxEntries uint32
-	flags      uint32
-	data       []uint64
+
+	data []uint64
 }
 
 func (m *MapArrayStorage) Lookup(key []byte) (uint64, error) {
-	idx := ByteOrder.Uint64(key)
-	if int(idx) > len(m.data) {
+	var idx int
+	switch len(key) {
+	case 2:
+		idx = int(ByteOrder.Uint16(key))
+	case 4:
+		idx = int(ByteOrder.Uint32(key))
+	case 8:
+		idx = int(ByteOrder.Uint64(key))
+	default:
+		return 0, errors.New("incorrect key size")
+	}
+
+	if idx > len(m.data) {
 		return 0, errors.New("out of bound")
 	}
 
@@ -40,8 +51,8 @@ func (m *MapArrayStorage) Update(key []byte, value []byte, kind MapUpdateType) (
 		return false, errors.New("out of bound")
 	}
 
-	m.heap.Free(m.data[idx])
-	m.data[idx] = m.heap.AllocWith(value)
+	m.vm.heap.Free(m.data[idx])
+	m.data[idx] = m.vm.heap.AllocWith(value)
 
 	return true, nil
 }
@@ -62,14 +73,14 @@ func (m *MapArrayStorage) Write(data []byte) error {
 	return errors.New("operation not supported")
 }
 
-func NewMapArrayStorage(id int, heap *Heap, keySize, valueSize, maxEntries, flags uint32) (MapStorage, error) {
+func NewMapArrayStorage(vm *VM, id int, keySize, valueSize, maxEntries, flags uint32) (MapStorage, error) {
 	data := make([]uint64, maxEntries)
 	for i := range data {
-		data[i] = heap.Alloc(int(valueSize))
+		data[i] = vm.heap.Alloc(int(valueSize))
 	}
 
 	return &MapArrayStorage{
-		heap:       heap,
+		vm:         vm,
 		maxEntries: maxEntries,
 		data:       data,
 	}, nil

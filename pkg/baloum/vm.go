@@ -55,8 +55,10 @@ func NewVM(spec *ebpf.CollectionSpec, opts Opts) *VM {
 		stack: make([]byte, opts.StackSize),
 		heap:  NewHeap(),
 		strs:  make(map[string]uint64),
-		maps:  NewMapCollection(),
 	}
+
+	vm.maps = NewMapCollection(vm)
+
 	vm.initStrs()
 	vm.initFncs()
 
@@ -269,7 +271,7 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 	vm.regs[asm.RFP] = uint64(len(vm.stack))
 	vm.regs[asm.R1] = vm.heap.AllocWith(ctx.Bytes())
 
-	if err := vm.maps.LoadMaps(vm.heap, vm.Spec, section); err != nil {
+	if err := vm.maps.LoadMaps(vm.Spec, section); err != nil {
 		return ErrorCode, err
 	}
 

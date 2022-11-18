@@ -16,7 +16,11 @@ limitations under the License.
 
 package baloum
 
-import "github.com/cilium/ebpf/asm"
+import (
+	"runtime"
+
+	"github.com/cilium/ebpf/asm"
+)
 
 const (
 	DEFAULT_STACK_SIZE = 512
@@ -26,6 +30,7 @@ type Fncs struct {
 	GetCurrentPidTgid func(vm *VM) (uint64, error)
 	KtimeGetNS        func(vm *VM) (uint64, error)
 	TracePrintk       func(vm *VM, format string, args ...interface{})
+	GetSmpProcessorId func(vm *VM) (uint64, error)
 }
 
 type Opts struct {
@@ -33,6 +38,7 @@ type Opts struct {
 	Fncs      Fncs
 	RawFncs   map[asm.BuiltinFunc]func(*VM, *asm.Instruction) error
 	Logger    Logger
+	CPUs      int
 }
 
 func (o *Opts) applyDefault() {
@@ -42,5 +48,9 @@ func (o *Opts) applyDefault() {
 
 	if o.Logger == nil {
 		o.Logger = &NullLogger{}
+	}
+
+	if o.CPUs == 0 {
+		o.CPUs = runtime.NumCPU()
 	}
 }

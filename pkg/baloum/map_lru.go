@@ -23,9 +23,8 @@ import (
 )
 
 type MapLRUStorage struct {
-	heap       *Heap
+	vm         *VM
 	maxEntries uint32
-	flags      uint32
 	data       *lru.Cache
 }
 
@@ -43,9 +42,9 @@ func (m *MapLRUStorage) Update(key []byte, value []byte, kind MapUpdateType) (bo
 		if kind == BPF_NOEXIST {
 			return false, nil
 		}
-		m.heap.Free(addr.(uint64))
+		m.vm.heap.Free(addr.(uint64))
 	}
-	m.data.Add(string(key), m.heap.AllocWith(value))
+	m.data.Add(string(key), m.vm.heap.AllocWith(value))
 
 	return true, nil
 }
@@ -53,7 +52,7 @@ func (m *MapLRUStorage) Update(key []byte, value []byte, kind MapUpdateType) (bo
 func (m *MapLRUStorage) Delete(key []byte) (bool, error) {
 	addr, exists := m.data.Get(string(key))
 	if exists {
-		m.heap.Free(addr.(uint64))
+		m.vm.heap.Free(addr.(uint64))
 	}
 	return m.data.Remove(string(key)), nil
 }
@@ -76,16 +75,16 @@ func (m *MapLRUStorage) Write(data []byte) error {
 	return errors.New("operation not supported")
 }
 
-func NewMapLRUStorage(id int, heap *Heap, keySize, valueSize, maxEntries, flags uint32) (MapStorage, error) {
+func NewMapLRUStorage(vm *VM, id int, keySize, valueSize, maxEntries, flags uint32) (MapStorage, error) {
 	cache, err := lru.NewWithEvict(int(maxEntries), func(key, value interface{}) {
-		heap.Free(value.(uint64))
+		vm.heap.Free(value.(uint64))
 	})
 	if err != nil {
 		return nil, err
 	}
 
 	return &MapLRUStorage{
-		heap:       heap,
+		vm:         vm,
 		maxEntries: maxEntries,
 		data:       cache,
 	}, nil

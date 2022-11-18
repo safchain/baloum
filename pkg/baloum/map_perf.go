@@ -19,6 +19,7 @@ package baloum
 import "errors"
 
 type MapPerfStorage struct {
+	vm   *VM
 	data chan []byte
 }
 
@@ -51,8 +52,9 @@ func (m *MapPerfStorage) Write(data []byte) error {
 	return nil
 }
 
-func NewMapPerfStorage(id int, keySize, valueSize, maxEntries, flags uint32) (MapStorage, error) {
+func NewMapPerfStorage(vm *VM, id int, keySize, valueSize, maxEntries, flags uint32) (MapStorage, error) {
 	return &MapPerfStorage{
+		vm:   vm,
 		data: make(chan []byte, 1000),
 	}, nil
 }

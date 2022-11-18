@@ -187,7 +187,7 @@ func TestPrintk(t *testing.T) {
 	assert.Equal(t, "this is a printk test, values: 123:hello", printed)
 }
 
-func TestMapArray(t *testing.T) {
+func TestMapArray64(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	defer logger.Sync()
 
@@ -206,11 +206,68 @@ func TestMapArray(t *testing.T) {
 	vm := NewVM(spec, Opts{Logger: suggar})
 
 	var ctx Context
-	code, err := vm.RunProgram(ctx, "test/array")
+	code, err := vm.RunProgram(ctx, "test/array64")
 	assert.Zero(t, code)
 	assert.Nil(t, err)
 
-	data, err := vm.Map("cache").Lookup(uint64(4))
+	data, err := vm.Map("cache64").Lookup(uint64(4))
+	assert.Nil(t, err)
+	assert.Equal(t, uint64(44), ByteOrder.Uint64(data))
+}
+
+func TestMapArray32(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+
+	suggar := logger.Sugar()
+
+	reader, err := os.Open("../../ebpf/bin/test_map_array.o")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	spec, err := ebpf.LoadCollectionSpecFromReader(reader)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	vm := NewVM(spec, Opts{Logger: suggar})
+
+	var ctx Context
+	code, err := vm.RunProgram(ctx, "test/array32")
+	assert.Zero(t, code)
+	assert.Nil(t, err)
+
+	data, err := vm.Map("cache32").Lookup(uint32(4))
+	assert.Nil(t, err)
+	assert.Equal(t, uint32(44), ByteOrder.Uint32(data))
+}
+
+func TestPerCPUMapArray(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+
+	suggar := logger.Sugar()
+
+	reader, err := os.Open("../../ebpf/bin/test_map_array.o")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	spec, err := ebpf.LoadCollectionSpecFromReader(reader)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	vm := NewVM(spec, Opts{Logger: suggar})
+
+	var ctx Context
+	code, err := vm.RunProgram(ctx, "test/array_cpu")
+	assert.Zero(t, code)
+	assert.Nil(t, err)
+
+	data, err := vm.Map("cache_cpu").Lookup(uint64(4))
+	assert.Nil(t, err)
 	assert.Equal(t, uint64(44), ByteOrder.Uint64(data))
 }
 
@@ -238,5 +295,6 @@ func TestSyncAdd(t *testing.T) {
 	assert.Nil(t, err)
 
 	data, err := vm.Map("cache").Lookup(uint64(4))
+	assert.Nil(t, err)
 	assert.Equal(t, uint64(14), ByteOrder.Uint64(data))
 }

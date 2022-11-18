@@ -42,13 +42,11 @@ type MapStorage interface {
 }
 
 type Map struct {
-	id         int
-	heap       *Heap
-	keySize    uint32
-	valueSize  uint32
-	maxEntries uint32
-	flags      uint32
-	storage    MapStorage
+	vm        *VM
+	id        int
+	keySize   uint32
+	valueSize uint32
+	storage   MapStorage
 }
 
 func (m *Map) LookupAddr(key interface{}) (uint64, error) {
@@ -66,7 +64,7 @@ func (m *Map) Lookup(key interface{}) ([]byte, error) {
 		return nil, err
 	}
 
-	bytes, addr, err := m.heap.GetMem(addr)
+	bytes, addr, err := m.vm.heap.GetMem(addr)
 	if err != nil {
 		return nil, err
 	}
@@ -127,11 +125,12 @@ func (m *Map) ID() int {
 }
 
 type MapCollection struct {
+	vm        *VM
 	mapByName map[string]*Map
 	mapById   []*Map
 }
 
-func (mc *MapCollection) LoadMap(heap *Heap, spec *ebpf.CollectionSpec, name string) error {
+func (mc *MapCollection) LoadMap(spec *ebpf.CollectionSpec, name string) error {
 	if _, exists := mc.mapByName[name]; exists {
 		return nil
 	}
@@ -145,30 +144,35 @@ func (mc *MapCollection) LoadMap(heap *Heap, spec *ebpf.CollectionSpec, name str
 
 		id := len(mc.mapById)
 		_map := &Map{
-			id:        id,
-			heap:      heap,
+			vm:        mc.vm,
 			keySize:   m.KeySize,
 			valueSize: m.ValueSize,
 		}
 
 		switch m.Type {
 		case ebpf.Array:
-			_map.storage, err = NewMapArrayStorage(id, heap, m.KeySize, m.ValueSize, m.MaxEntries, m.Flags)
+			fmt.Printf("ZZZZZ\n")
+			_map.storage, err = NewMapArrayStorage(mc.vm, id, m.KeySize, m.ValueSize, m.MaxEntries, m.Flags)
 			if err != nil {
 				return err
 			}
 		case ebpf.Hash:
-			_map.storage, err = NewMapHashStorage(id, heap, m.KeySize, m.ValueSize, m.MaxEntries, m.Flags)
+			_map.storage, err = NewMapHashStorage(mc.vm, id, m.KeySize, m.ValueSize, m.MaxEntries, m.Flags)
 			if err != nil {
 				return err
 			}
 		case ebpf.LRUHash:
-			_map.storage, err = NewMapLRUStorage(id, heap, m.KeySize, m.ValueSize, m.MaxEntries, m.Flags)
+			_map.storage, err = NewMapLRUStorage(mc.vm, id, m.KeySize, m.ValueSize, m.MaxEntries, m.Flags)
 			if err != nil {
 				return err
 			}
 		case ebpf.PerfEventArray:
-			_map.storage, err = NewMapPerfStorage(id, m.KeySize, m.ValueSize, m.MaxEntries, m.Flags)
+			_map.storage, err = NewMapPerfStorage(mc.vm, id, m.KeySize, m.ValueSize, m.MaxEntries, m.Flags)
+			if err != nil {
+				return err
+			}
+		case ebpf.PerCPUArray:
+			_map.storage, err = NewMapPerCPUArrayStorage(mc.vm, id, m.KeySize, m.ValueSize, m.MaxEntries, m.Flags)
 			if err != nil {
 				return err
 			}
@@ -176,10 +180,8 @@ func (mc *MapCollection) LoadMap(heap *Heap, spec *ebpf.CollectionSpec, name str
 			return fmt.Errorf("map type %s not supported", m.Type)
 		}
 
-		if _map != nil {
-			mc.mapByName[m.Name] = _map
-			mc.mapById = append(mc.mapById, _map)
-		}
+		mc.mapByName[m.Name] = _map
+		mc.mapById = append(mc.mapById, _map)
 	}
 
 	return nil
@@ -205,7 +207,7 @@ func (mc *MapCollection) GetMapByName(name string) *Map {
 	return mc.mapByName[name]
 }
 
-func (mc *MapCollection) LoadMaps(heap *Heap, spec *ebpf.CollectionSpec, sections ...string) error {
+func (mc *MapCollection) LoadMaps(spec *ebpf.CollectionSpec, sections ...string) error {
 	for _, prog := range spec.Programs {
 		if !progMatch(prog, sections...) {
 			continue
@@ -213,7 +215,7 @@ func (mc *MapCollection) LoadMaps(heap *Heap, spec *ebpf.CollectionSpec, section
 
 		for _, inst := range prog.Instructions {
 			if inst.Src == asm.PseudoMapFD || inst.Dst == asm.PseudoMapFD {
-				if err := mc.LoadMap(heap, spec, inst.Reference()); err != nil {
+				if err := mc.LoadMap(spec, inst.Reference()); err != nil {
 					return err
 				}
 			}
@@ -223,8 +225,9 @@ func (mc *MapCollection) LoadMaps(heap *Heap, spec *ebpf.CollectionSpec, section
 	return nil
 }
 
-func NewMapCollection() *MapCollection {
+func NewMapCollection(vm *VM) *MapCollection {
 	return &MapCollection{
+		vm:        vm,
 		mapByName: make(map[string]*Map),
 	}
 }
