@@ -389,8 +389,16 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 		//
 		case asm.Add.Op(asm.ImmSource):
 			vm.regs[inst.Dst] += uint64(inst.Constant)
+		case asm.Add.Op(asm.RegSource):
+			vm.regs[inst.Dst] += vm.regs[inst.Src]
 		case asm.And.Op(asm.ImmSource):
 			vm.regs[inst.Dst] &= uint64(inst.Constant)
+		case asm.And.Op(asm.RegSource):
+			vm.regs[inst.Dst] &= vm.regs[inst.Src]
+		case asm.Or.Op(asm.ImmSource):
+			vm.regs[inst.Dst] |= uint64(inst.Constant)
+		case asm.Or.Op(asm.RegSource):
+			vm.regs[inst.Dst] |= vm.regs[inst.Src]
 
 		//
 		case asm.JEq.Op(asm.ImmSource):
@@ -405,6 +413,42 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 			}
 		case asm.JNE.Op(asm.RegSource):
 			if vm.regs[inst.Dst] != vm.regs[inst.Src] {
+				pc += int(inst.Offset)
+			}
+		case asm.JEq.Op(asm.RegSource):
+			if vm.regs[inst.Dst] == vm.regs[inst.Src] {
+				pc += int(inst.Offset)
+			}
+		case asm.JGE.Op(asm.RegSource):
+			if vm.regs[inst.Dst] >= vm.regs[inst.Src] {
+				pc += int(inst.Offset)
+			}
+		case asm.JGE.Op(asm.ImmSource):
+			if vm.regs[inst.Dst] >= uint64(inst.Constant) {
+				pc += int(inst.Offset)
+			}
+		case asm.JGT.Op(asm.RegSource):
+			if vm.regs[inst.Dst] > vm.regs[inst.Src] {
+				pc += int(inst.Offset)
+			}
+		case asm.JGT.Op(asm.ImmSource):
+			if vm.regs[inst.Dst] > uint64(inst.Constant) {
+				pc += int(inst.Offset)
+			}
+		case asm.JLE.Op(asm.RegSource):
+			if vm.regs[inst.Dst] <= vm.regs[inst.Src] {
+				pc += int(inst.Offset)
+			}
+		case asm.JLE.Op(asm.ImmSource):
+			if vm.regs[inst.Dst] <= uint64(inst.Constant) {
+				pc += int(inst.Offset)
+			}
+		case asm.JLT.Op(asm.RegSource):
+			if vm.regs[inst.Dst] < vm.regs[inst.Src] {
+				pc += int(inst.Offset)
+			}
+		case asm.JLT.Op(asm.ImmSource):
+			if vm.regs[inst.Dst] < uint64(inst.Constant) {
 				pc += int(inst.Offset)
 			}
 

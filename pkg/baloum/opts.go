@@ -18,6 +18,7 @@ package baloum
 
 import (
 	"runtime"
+	"time"
 
 	"github.com/cilium/ebpf/asm"
 )
@@ -41,6 +42,10 @@ type Opts struct {
 	CPUs      int
 }
 
+func defaultKtimeGetNS(vm *VM) (uint64, error) {
+	return uint64(time.Now().UnixNano()), nil
+}
+
 func (o *Opts) applyDefault() {
 	if o.StackSize == 0 {
 		o.StackSize = DEFAULT_STACK_SIZE
@@ -52,5 +57,9 @@ func (o *Opts) applyDefault() {
 
 	if o.CPUs == 0 {
 		o.CPUs = runtime.NumCPU()
+	}
+
+	if o.Fncs.KtimeGetNS == nil {
+		o.Fncs.KtimeGetNS = defaultKtimeGetNS
 	}
 }

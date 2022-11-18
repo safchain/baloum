@@ -21,6 +21,7 @@ import (
 	"errors"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/cilium/ebpf/asm"
 )
@@ -37,6 +38,9 @@ const (
 
 	// static int (*baloum_memcmp)(const void *b1, const void *b2, __u32 size) = (void *)0xfffc;
 	FnMemCmp = asm.BuiltinFunc(0xfffc)
+
+	// static int (*baloum_sleep)(__u64 ns) = (void *)0xfffb;
+	FnSleep = asm.BuiltinFunc(0xfffb)
 )
 
 var (
@@ -46,6 +50,7 @@ var (
 		FnCall:   FnCallImpl,
 		FnStrCmp: FnStrCmpImpl,
 		FnMemCmp: FnMemCmpImpl,
+		FnSleep:  FnSleepImpl,
 
 		// bpf helpers
 		asm.FnTracePrintk:       FnTracePrintkImpl,
@@ -61,17 +66,8 @@ var (
 	}
 )
 
-func FnGetSmpProcessorIdImpl(vm *VM, inst *asm.Instruction) error {
-	vm.regs[asm.R0] = 0
-
-	if vm.Opts.Fncs.GetSmpProcessorId != nil {
-		id, err := vm.Opts.Fncs.GetSmpProcessorId(vm)
-		if err != nil {
-			return err
-		}
-		vm.regs[asm.R0] = id
-	}
-
+func FnSleepImpl(vm *VM, inst *asm.Instruction) error {
+	time.Sleep(time.Duration(vm.regs[asm.R1]))
 	return nil
 }
 
@@ -358,4 +354,18 @@ func FnPerfEventOutputImpl(vm *VM, inst *asm.Instruction) error {
 	}
 
 	return _map.Write(data, size)
+}
+
+func FnGetSmpProcessorIdImpl(vm *VM, inst *asm.Instruction) error {
+	vm.regs[asm.R0] = 0
+
+	if vm.Opts.Fncs.GetSmpProcessorId != nil {
+		id, err := vm.Opts.Fncs.GetSmpProcessorId(vm)
+		if err != nil {
+			return err
+		}
+		vm.regs[asm.R0] = id
+	}
+
+	return nil
 }
