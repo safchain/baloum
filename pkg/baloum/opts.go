@@ -30,8 +30,9 @@ const (
 type Fncs struct {
 	GetCurrentPidTgid func(vm *VM) (uint64, error)
 	KtimeGetNS        func(vm *VM) (uint64, error)
-	TracePrintk       func(vm *VM, format string, args ...interface{})
+	TracePrintk       func(vm *VM, format string, args ...interface{}) error
 	GetSmpProcessorId func(vm *VM) (uint64, error)
+	Sleep             func(vm *VM, duration time.Duration) error
 }
 
 type Opts struct {
@@ -44,6 +45,11 @@ type Opts struct {
 
 func defaultKtimeGetNS(vm *VM) (uint64, error) {
 	return uint64(time.Now().UnixNano()), nil
+}
+
+func defaultSleep(vm *VM, duration time.Duration) error {
+	time.Sleep(duration)
+	return nil
 }
 
 func (o *Opts) applyDefault() {
@@ -61,5 +67,9 @@ func (o *Opts) applyDefault() {
 
 	if o.Fncs.KtimeGetNS == nil {
 		o.Fncs.KtimeGetNS = defaultKtimeGetNS
+	}
+
+	if o.Fncs.Sleep == nil {
+		o.Fncs.Sleep = defaultSleep
 	}
 }

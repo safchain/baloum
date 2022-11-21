@@ -173,8 +173,9 @@ func TestPrintk(t *testing.T) {
 	var printed string
 
 	fncs := Fncs{
-		TracePrintk: func(vm *VM, format string, args ...interface{}) {
+		TracePrintk: func(vm *VM, format string, args ...interface{}) error {
 			printed = fmt.Sprintf(format, args...)
+			return nil
 		},
 	}
 

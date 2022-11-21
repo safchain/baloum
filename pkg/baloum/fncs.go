@@ -67,7 +67,9 @@ var (
 )
 
 func FnSleepImpl(vm *VM, inst *asm.Instruction) error {
-	time.Sleep(time.Duration(vm.regs[asm.R1]))
+	if vm.Opts.Fncs.Sleep != nil {
+		vm.Opts.Fncs.Sleep(vm, time.Duration(vm.regs[asm.R1]))
+	}
 	return nil
 }
 
