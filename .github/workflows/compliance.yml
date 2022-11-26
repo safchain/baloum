@@ -1,0 +1,29 @@
+name: "Run conformance tests"
+
+on: push
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Checkout conformance repository
+        uses: actions/checkout@v3
+        with:
+          repository: Alan-Jowett/bpf_conformance
+          path: conformance
+
+      - name: Setup Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: '1.19'
+
+      - name: Go build test driver
+        run: |
+          go build -o test_driver ./conformance_tests
+
+      - name: Help
+        run: |
+          ./test_driver -help
