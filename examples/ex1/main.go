@@ -90,8 +90,9 @@ func main() {
 		GetCurrentPidTgid: func(vm *baloum.VM) (uint64, error) {
 			return tgid, nil
 		},
-		TracePrintk: func(vm *baloum.VM, format string, args ...interface{}) {
+		TracePrintk: func(vm *baloum.VM, format string, args ...interface{}) error {
 			suggar.Debugf(format, args...)
+			return nil
 		},
 	}
 
