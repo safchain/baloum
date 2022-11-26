@@ -11,17 +11,11 @@ import (
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/asm"
 	"github.com/safchain/baloum/pkg/baloum"
-	"go.uber.org/zap"
 )
 
 const TEST_RUN_SECTION = "test_run"
 
 func main() {
-	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
-
-	suggar := logger.Sugar()
-
 	program := flag.String("program", "", "input program in hexa form")
 	flag.Parse()
 
@@ -52,7 +46,7 @@ func main() {
 		},
 	}
 
-	vm := baloum.NewVM(spec, baloum.Opts{Logger: suggar})
+	vm := baloum.NewVM(spec, baloum.Opts{})
 
 	var ctx baloum.Context
 	code, err := vm.RunProgram(ctx, TEST_RUN_SECTION)

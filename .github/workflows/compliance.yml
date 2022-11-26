@@ -4,7 +4,7 @@ on: push
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -15,6 +15,11 @@ jobs:
           repository: Alan-Jowett/bpf_conformance
           path: conformance
 
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libboost-all-dev
+
       - name: Setup Go
         uses: actions/setup-go@v3
         with:
@@ -24,6 +29,12 @@ jobs:
         run: |
           go build -o test_driver ./conformance_tests
 
-      - name: Help
+      - name: Build conformance checker
+        working-directory: conformance
         run: |
-          ./test_driver -help
+          cmake -S . -B build
+          cmake --build build
+
+      - name: Run checker
+        run: |
+          ./conformance/build/bin/bpf_conformance_runner --test_file_directory ./conformance/tests --plugin_path ./test_driver --debug 1
