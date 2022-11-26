@@ -37,4 +37,4 @@ jobs:
 
       - name: Run checker
         run: |
-          ./conformance/build/bin/bpf_conformance_runner --test_file_directory ./conformance/tests --plugin_path ./test_driver --debug 1
+          ./conformance/build/bin/bpf_conformance_runner --test_file_directory ./conformance/tests --plugin_path ./test_driver

@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
+	"io"
+	"os"
 	"strings"
 
 	"github.com/cilium/ebpf"
@@ -16,14 +18,14 @@ import (
 const TEST_RUN_SECTION = "test_run"
 
 func main() {
-	program := flag.String("program", "", "input program in hexa form")
-	flag.Parse()
+	program, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		panic(err)
+	}
 
 	memory := flag.Arg(0)
 
-	fmt.Println(*program, memory)
-
-	programByteCode, err := decode_hexa(*program)
+	programByteCode, err := decode_hexa(string(program))
 	if err != nil {
 		panic(err)
 	}
@@ -42,6 +44,7 @@ func main() {
 		Programs: map[string]*ebpf.ProgramSpec{
 			TEST_RUN_SECTION: {
 				Instructions: instructions,
+				SectionName:  TEST_RUN_SECTION,
 			},
 		},
 	}
