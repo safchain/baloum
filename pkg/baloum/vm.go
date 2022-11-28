@@ -29,6 +29,7 @@ import (
 
 const (
 	ErrorCode = int(-1)
+	fetchBit  = 0x01
 )
 
 type vmState struct {
@@ -203,13 +204,13 @@ func (vm *VM) setUint8(addr uint64, value uint8) error {
 	return nil
 }
 
-func (vm *VM) atomicUint64(addr uint64, inc uint64, imm int64) error {
+func (vm *VM) atomicUint64(addr uint64, inc uint64, imm int64) (uint64, error) {
 	value, err := vm.getUint64(addr)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	var res uint64
-	switch imm {
+	switch imm & 0xF0 {
 	case 0x00: // ADD
 		res = value + inc
 	case 0x40: // OR
@@ -218,19 +219,21 @@ func (vm *VM) atomicUint64(addr uint64, inc uint64, imm int64) error {
 		res = value & inc
 	case 0xa0: // XOR
 		res = value ^ inc
+	case 0xe0: // XCHG
+		res = inc
 	default:
-		return fmt.Errorf("unknown atomic operand: %d", imm)
+		return 0, fmt.Errorf("unknown atomic operand: %d", imm)
 	}
-	return vm.setUint64(addr, res)
+	return value, vm.setUint64(addr, res)
 }
 
-func (vm *VM) atomicUint32(addr uint64, inc uint32, imm int64) error {
+func (vm *VM) atomicUint32(addr uint64, inc uint32, imm int64) (uint32, error) {
 	value, err := vm.getUint32(addr)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	var res uint32
-	switch imm {
+	switch imm & 0xF0 {
 	case 0x00: // ADD
 		res = value + inc
 	case 0x40: // OR
@@ -239,10 +242,12 @@ func (vm *VM) atomicUint32(addr uint64, inc uint32, imm int64) error {
 		res = value & inc
 	case 0xa0: // XOR
 		res = value ^ inc
+	case 0xe0: // XCHG
+		res = inc
 	default:
-		return fmt.Errorf("unknown atomic operand: %d", imm)
+		return 0, fmt.Errorf("unknown atomic operand: %d", imm)
 	}
-	return vm.setUint32(addr, res)
+	return value, vm.setUint32(addr, res)
 }
 
 func isStrSection(name string) bool {
@@ -476,13 +481,21 @@ func (vm *VM) RunProgramWithRawMemory(bytes []byte, section string, setLenInR2 b
 		//
 		case asm.StoreXAddOp(asm.DWord):
 			dstAddr := vm.regs[inst.Dst] + uint64(inst.Offset)
-			if err := vm.atomicUint64(dstAddr, vm.regs[inst.Src], inst.Constant); err != nil {
+			oldValue, err := vm.atomicUint64(dstAddr, vm.regs[inst.Src], inst.Constant)
+			if err != nil {
 				return ErrorCode, err
+			}
+			if inst.Constant&fetchBit != 0 {
+				vm.regs[inst.Src] = oldValue
 			}
 		case asm.StoreXAddOp(asm.Word):
 			dstAddr := vm.regs[inst.Dst] + uint64(inst.Offset)
-			if err := vm.atomicUint32(dstAddr, uint32(vm.regs[inst.Src]), inst.Constant); err != nil {
+			oldValue, err := vm.atomicUint32(dstAddr, uint32(vm.regs[inst.Src]), inst.Constant)
+			if err != nil {
 				return ErrorCode, err
+			}
+			if inst.Constant&fetchBit != 0 {
+				vm.regs[inst.Src] = uint64(oldValue)
 			}
 
 		//
