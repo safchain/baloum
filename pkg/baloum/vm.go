@@ -425,10 +425,26 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 			vm.regs[inst.Dst] &= uint64(inst.Constant)
 		case asm.And.Op(asm.RegSource):
 			vm.regs[inst.Dst] &= vm.regs[inst.Src]
+		case asm.And.Op32(asm.ImmSource):
+			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) & uint32(inst.Constant))
+		case asm.And.Op32(asm.RegSource):
+			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) & uint32(vm.regs[inst.Src]))
 		case asm.Or.Op(asm.ImmSource):
 			vm.regs[inst.Dst] |= uint64(inst.Constant)
 		case asm.Or.Op(asm.RegSource):
 			vm.regs[inst.Dst] |= vm.regs[inst.Src]
+		case asm.Or.Op32(asm.ImmSource):
+			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) | uint32(inst.Constant))
+		case asm.Or.Op32(asm.RegSource):
+			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) | uint32(vm.regs[inst.Src]))
+		case asm.Xor.Op(asm.ImmSource):
+			vm.regs[inst.Dst] ^= uint64(inst.Constant)
+		case asm.Xor.Op(asm.RegSource):
+			vm.regs[inst.Dst] ^= vm.regs[inst.Src]
+		case asm.Xor.Op32(asm.ImmSource):
+			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) ^ uint32(inst.Constant))
+		case asm.Xor.Op32(asm.RegSource):
+			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) ^ uint32(vm.regs[inst.Src]))
 
 		//
 		case asm.JEq.Op(asm.ImmSource):
