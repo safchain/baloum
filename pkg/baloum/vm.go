@@ -142,6 +142,15 @@ func (vm *VM) getUint16(addr uint64) (uint16, error) {
 	return ByteOrder.Uint16(bytes), nil
 }
 
+func (vm *VM) getUint8(addr uint64) (uint8, error) {
+	bytes, err := vm.getBytes(addr, 1)
+	if err != nil {
+		return 0, err
+	}
+
+	return uint8(bytes[0]), nil
+}
+
 func (vm *VM) getString(addr uint64) (string, error) {
 	data, addr, err := vm.getMem(addr)
 	if err != nil {
@@ -325,6 +334,13 @@ func (vm *VM) RunProgramWithRawMemory(bytes []byte, section string) (int, error)
 		case asm.LoadMemOp(asm.Half):
 			srcAddr := vm.regs[inst.Src] + uint64(inst.Offset)
 			value, err := vm.getUint16(srcAddr)
+			if err != nil {
+				return ErrorCode, err
+			}
+			vm.regs[inst.Dst] = uint64(value)
+		case asm.LoadMemOp(asm.Byte):
+			srcAddr := vm.regs[inst.Src] + uint64(inst.Offset)
+			value, err := vm.getUint8(srcAddr)
 			if err != nil {
 				return ErrorCode, err
 			}
