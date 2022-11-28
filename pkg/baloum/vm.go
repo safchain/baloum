@@ -348,8 +348,28 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 		//
 		case asm.LSh.Op(asm.ImmSource):
 			vm.regs[inst.Dst] <<= uint64(inst.Constant)
+		case asm.LSh.Op(asm.RegSource):
+			vm.regs[inst.Dst] <<= uint64(vm.regs[inst.Src])
+		case asm.LSh.Op32(asm.ImmSource):
+			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) << uint32(inst.Constant))
+		case asm.LSh.Op32(asm.RegSource):
+			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) << uint32(vm.regs[inst.Src]))
 		case asm.RSh.Op(asm.ImmSource):
 			vm.regs[inst.Dst] >>= uint64(inst.Constant)
+		case asm.RSh.Op(asm.RegSource):
+			vm.regs[inst.Dst] >>= uint64(vm.regs[inst.Src])
+		case asm.RSh.Op32(asm.ImmSource):
+			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) >> uint32(inst.Constant))
+		case asm.RSh.Op32(asm.RegSource):
+			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) >> uint32(vm.regs[inst.Src]))
+		case asm.ArSh.Op(asm.ImmSource):
+			vm.regs[inst.Dst] = uint64(int64(vm.regs[inst.Dst]) >> uint64(inst.Constant))
+		case asm.ArSh.Op(asm.RegSource):
+			vm.regs[inst.Dst] = uint64(int64(vm.regs[inst.Dst]) >> uint64(vm.regs[inst.Src]))
+		case asm.ArSh.Op32(asm.ImmSource):
+			vm.regs[inst.Dst] = zeroExtend(int32(vm.regs[inst.Dst]) >> uint32(inst.Constant))
+		case asm.ArSh.Op32(asm.RegSource):
+			vm.regs[inst.Dst] = zeroExtend(int32(vm.regs[inst.Dst]) >> uint32(vm.regs[inst.Src]))
 
 		//
 		case asm.StoreMemOp(asm.DWord):
@@ -381,12 +401,14 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 			}
 
 		//
-		case asm.Mov.Op(asm.RegSource):
-			vm.regs[inst.Dst] = vm.regs[inst.Src]
 		case asm.Mov.Op(asm.ImmSource):
 			vm.regs[inst.Dst] = uint64(inst.Constant)
+		case asm.Mov.Op(asm.RegSource):
+			vm.regs[inst.Dst] = vm.regs[inst.Src]
 		case asm.Mov.Op32(asm.ImmSource):
-			vm.regs[inst.Dst] = uint64(inst.Constant)
+			vm.regs[inst.Dst] = zeroExtend(int32(inst.Constant))
+		case asm.Mov.Op32(asm.RegSource):
+			vm.regs[inst.Dst] = zeroExtend(int32(vm.regs[inst.Src]))
 
 		//
 		case asm.Add.Op(asm.ImmSource):
@@ -397,22 +419,92 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) + uint32(inst.Constant))
 		case asm.Add.Op32(asm.RegSource):
 			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) + uint32(vm.regs[inst.Src]))
+		case asm.Sub.Op(asm.ImmSource):
+			vm.regs[inst.Dst] -= uint64(inst.Constant)
+		case asm.Sub.Op(asm.RegSource):
+			vm.regs[inst.Dst] -= vm.regs[inst.Src]
+		case asm.Sub.Op32(asm.ImmSource):
+			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) - uint32(inst.Constant))
+		case asm.Sub.Op32(asm.RegSource):
+			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) - uint32(vm.regs[inst.Src]))
+		case asm.Mul.Op(asm.ImmSource):
+			vm.regs[inst.Dst] *= uint64(inst.Constant)
+		case asm.Mul.Op(asm.RegSource):
+			vm.regs[inst.Dst] *= vm.regs[inst.Src]
+		case asm.Mul.Op32(asm.ImmSource):
+			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) * uint32(inst.Constant))
+		case asm.Mul.Op32(asm.RegSource):
+			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) * uint32(vm.regs[inst.Src]))
+		case asm.Div.Op(asm.ImmSource):
+			if uint64(inst.Constant) == 0 {
+				vm.regs[inst.Dst] = 0
+			} else {
+				vm.regs[inst.Dst] /= uint64(inst.Constant)
+			}
+		case asm.Div.Op(asm.RegSource):
+			if uint64(vm.regs[inst.Src]) == 0 {
+				vm.regs[inst.Dst] = 0
+			} else {
+				vm.regs[inst.Dst] /= vm.regs[inst.Src]
+			}
+		case asm.Div.Op32(asm.ImmSource):
+			if uint32(inst.Constant) == 0 {
+				vm.regs[inst.Dst] = 0
+			} else {
+				vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) / uint32(inst.Constant))
+			}
+		case asm.Div.Op32(asm.RegSource):
+			if uint32(vm.regs[inst.Src]) == 0 {
+				vm.regs[inst.Dst] = 0
+			} else {
+				vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) / uint32(vm.regs[inst.Src]))
+			}
 		case asm.And.Op(asm.ImmSource):
 			vm.regs[inst.Dst] &= uint64(inst.Constant)
 		case asm.And.Op(asm.RegSource):
 			vm.regs[inst.Dst] &= vm.regs[inst.Src]
+		case asm.And.Op32(asm.ImmSource):
+			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) & uint32(inst.Constant))
+		case asm.And.Op32(asm.RegSource):
+			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) & uint32(vm.regs[inst.Src]))
 		case asm.Or.Op(asm.ImmSource):
 			vm.regs[inst.Dst] |= uint64(inst.Constant)
 		case asm.Or.Op(asm.RegSource):
 			vm.regs[inst.Dst] |= vm.regs[inst.Src]
+		case asm.Or.Op32(asm.ImmSource):
+			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) | uint32(inst.Constant))
+		case asm.Or.Op32(asm.RegSource):
+			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) | uint32(vm.regs[inst.Src]))
+		case asm.Xor.Op(asm.ImmSource):
+			vm.regs[inst.Dst] ^= uint64(inst.Constant)
+		case asm.Xor.Op(asm.RegSource):
+			vm.regs[inst.Dst] ^= vm.regs[inst.Src]
+		case asm.Xor.Op32(asm.ImmSource):
+			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) ^ uint32(inst.Constant))
+		case asm.Xor.Op32(asm.RegSource):
+			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) ^ uint32(vm.regs[inst.Src]))
 
 		//
 		case asm.JEq.Op(asm.ImmSource):
 			if vm.regs[inst.Dst] == uint64(inst.Constant) {
 				pc += int(inst.Offset)
 			}
+		case asm.JEq.Op(asm.RegSource):
+			if vm.regs[inst.Dst] == vm.regs[inst.Src] {
+				pc += int(inst.Offset)
+			}
+		case JumpOpCode(asm.Jump32Class, asm.JEq, asm.ImmSource):
+			if uint32(vm.regs[inst.Dst]) == uint32(inst.Constant) {
+				pc += int(inst.Offset)
+			}
+		case JumpOpCode(asm.Jump32Class, asm.JEq, asm.RegSource):
+			if uint32(vm.regs[inst.Dst]) == uint32(vm.regs[inst.Src]) {
+				pc += int(inst.Offset)
+			}
 		case asm.Ja.Op(asm.ImmSource):
 			pc += int(inst.Offset)
+		case asm.Ja.Op(asm.RegSource):
+			pc += int(vm.regs[inst.Src])
 		case asm.JNE.Op(asm.ImmSource):
 			if vm.regs[inst.Dst] != uint64(inst.Constant) {
 				pc += int(inst.Offset)
@@ -421,8 +513,12 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 			if vm.regs[inst.Dst] != vm.regs[inst.Src] {
 				pc += int(inst.Offset)
 			}
-		case asm.JEq.Op(asm.RegSource):
-			if vm.regs[inst.Dst] == vm.regs[inst.Src] {
+		case JumpOpCode(asm.Jump32Class, asm.JNE, asm.ImmSource):
+			if uint32(vm.regs[inst.Dst]) != uint32(inst.Constant) {
+				pc += int(inst.Offset)
+			}
+		case JumpOpCode(asm.Jump32Class, asm.JNE, asm.RegSource):
+			if uint32(vm.regs[inst.Dst]) != uint32(vm.regs[inst.Src]) {
 				pc += int(inst.Offset)
 			}
 		case asm.JGE.Op(asm.RegSource):
@@ -433,12 +529,28 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 			if vm.regs[inst.Dst] >= uint64(inst.Constant) {
 				pc += int(inst.Offset)
 			}
+		case JumpOpCode(asm.Jump32Class, asm.JGE, asm.ImmSource):
+			if uint32(vm.regs[inst.Dst]) >= uint32(inst.Constant) {
+				pc += int(inst.Offset)
+			}
+		case JumpOpCode(asm.Jump32Class, asm.JGE, asm.RegSource):
+			if uint32(vm.regs[inst.Dst]) >= uint32(vm.regs[inst.Src]) {
+				pc += int(inst.Offset)
+			}
 		case asm.JGT.Op(asm.RegSource):
 			if vm.regs[inst.Dst] > vm.regs[inst.Src] {
 				pc += int(inst.Offset)
 			}
 		case asm.JGT.Op(asm.ImmSource):
 			if vm.regs[inst.Dst] > uint64(inst.Constant) {
+				pc += int(inst.Offset)
+			}
+		case JumpOpCode(asm.Jump32Class, asm.JGT, asm.ImmSource):
+			if uint32(vm.regs[inst.Dst]) > uint32(inst.Constant) {
+				pc += int(inst.Offset)
+			}
+		case JumpOpCode(asm.Jump32Class, asm.JGT, asm.RegSource):
+			if uint32(vm.regs[inst.Dst]) > uint32(vm.regs[inst.Src]) {
 				pc += int(inst.Offset)
 			}
 		case asm.JLE.Op(asm.RegSource):
@@ -449,12 +561,28 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 			if vm.regs[inst.Dst] <= uint64(inst.Constant) {
 				pc += int(inst.Offset)
 			}
+		case JumpOpCode(asm.Jump32Class, asm.JLE, asm.ImmSource):
+			if uint32(vm.regs[inst.Dst]) <= uint32(inst.Constant) {
+				pc += int(inst.Offset)
+			}
+		case JumpOpCode(asm.Jump32Class, asm.JLE, asm.RegSource):
+			if uint32(vm.regs[inst.Dst]) <= uint32(vm.regs[inst.Src]) {
+				pc += int(inst.Offset)
+			}
 		case asm.JLT.Op(asm.RegSource):
 			if vm.regs[inst.Dst] < vm.regs[inst.Src] {
 				pc += int(inst.Offset)
 			}
 		case asm.JLT.Op(asm.ImmSource):
 			if vm.regs[inst.Dst] < uint64(inst.Constant) {
+				pc += int(inst.Offset)
+			}
+		case JumpOpCode(asm.Jump32Class, asm.JLT, asm.ImmSource):
+			if uint32(vm.regs[inst.Dst]) < uint32(inst.Constant) {
+				pc += int(inst.Offset)
+			}
+		case JumpOpCode(asm.Jump32Class, asm.JLT, asm.RegSource):
+			if uint32(vm.regs[inst.Dst]) < uint32(vm.regs[inst.Src]) {
 				pc += int(inst.Offset)
 			}
 
@@ -477,4 +605,12 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 	}
 
 	return ErrorCode, errors.New("unexpected error")
+}
+
+func zeroExtend(in int32) uint64 {
+	return uint64(uint32(in))
+}
+
+func JumpOpCode(class asm.Class, jumpOp asm.JumpOp, source asm.Source) asm.OpCode {
+	return asm.OpCode(class).SetJumpOp(jumpOp).SetSource(source)
 }
