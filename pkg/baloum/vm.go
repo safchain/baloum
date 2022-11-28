@@ -489,18 +489,28 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 			if vm.regs[inst.Dst] == uint64(inst.Constant) {
 				pc += int(inst.Offset)
 			}
+		case asm.JEq.Op(asm.RegSource):
+			if vm.regs[inst.Dst] == vm.regs[inst.Src] {
+				pc += int(inst.Offset)
+			}
+		case asm.OpCode(asm.Jump32Class).SetJumpOp(asm.JEq).SetSource(asm.ImmSource):
+			if uint32(vm.regs[inst.Dst]) == uint32(inst.Constant) {
+				pc += int(inst.Offset)
+			}
+		case asm.OpCode(asm.Jump32Class).SetJumpOp(asm.JEq).SetSource(asm.RegSource):
+			if uint32(vm.regs[inst.Dst]) == uint32(vm.regs[inst.Src]) {
+				pc += int(inst.Offset)
+			}
 		case asm.Ja.Op(asm.ImmSource):
 			pc += int(inst.Offset)
+		case asm.Ja.Op(asm.RegSource):
+			pc += int(vm.regs[inst.Src])
 		case asm.JNE.Op(asm.ImmSource):
 			if vm.regs[inst.Dst] != uint64(inst.Constant) {
 				pc += int(inst.Offset)
 			}
 		case asm.JNE.Op(asm.RegSource):
 			if vm.regs[inst.Dst] != vm.regs[inst.Src] {
-				pc += int(inst.Offset)
-			}
-		case asm.JEq.Op(asm.RegSource):
-			if vm.regs[inst.Dst] == vm.regs[inst.Src] {
 				pc += int(inst.Offset)
 			}
 		case asm.JGE.Op(asm.RegSource):
