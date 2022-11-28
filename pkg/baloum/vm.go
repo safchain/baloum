@@ -367,9 +367,9 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 		case asm.ArSh.Op(asm.RegSource):
 			vm.regs[inst.Dst] = uint64(int64(vm.regs[inst.Dst]) >> uint64(vm.regs[inst.Src]))
 		case asm.ArSh.Op32(asm.ImmSource):
-			vm.regs[inst.Dst] = uint64(int32(vm.regs[inst.Dst]) >> uint32(inst.Constant))
+			vm.regs[inst.Dst] = signExtend(int32(vm.regs[inst.Dst]) >> uint32(inst.Constant))
 		case asm.ArSh.Op32(asm.RegSource):
-			vm.regs[inst.Dst] = uint64(int32(vm.regs[inst.Dst]) >> uint32(vm.regs[inst.Src]))
+			vm.regs[inst.Dst] = signExtend(int32(vm.regs[inst.Dst]) >> uint32(vm.regs[inst.Src]))
 
 		//
 		case asm.StoreMemOp(asm.DWord):
@@ -401,12 +401,14 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 			}
 
 		//
-		case asm.Mov.Op(asm.RegSource):
-			vm.regs[inst.Dst] = vm.regs[inst.Src]
 		case asm.Mov.Op(asm.ImmSource):
 			vm.regs[inst.Dst] = uint64(inst.Constant)
+		case asm.Mov.Op(asm.RegSource):
+			vm.regs[inst.Dst] = vm.regs[inst.Src]
 		case asm.Mov.Op32(asm.ImmSource):
-			vm.regs[inst.Dst] = uint64(inst.Constant)
+			vm.regs[inst.Dst] = signExtend(int32(inst.Constant))
+		case asm.Mov.Op32(asm.RegSource):
+			vm.regs[inst.Dst] = signExtend(int32(vm.regs[inst.Src]))
 
 		//
 		case asm.Add.Op(asm.ImmSource):
@@ -553,4 +555,8 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 	}
 
 	return ErrorCode, errors.New("unexpected error")
+}
+
+func signExtend(in int32) uint64 {
+	return uint64(int64(in))
 }
