@@ -211,6 +211,14 @@ func (vm *VM) addUint64(addr uint64, inc uint64) error {
 	return vm.setUint64(addr, value+inc)
 }
 
+func (vm *VM) addUint32(addr uint64, inc uint32) error {
+	value, err := vm.getUint32(addr)
+	if err != nil {
+		return err
+	}
+	return vm.setUint32(addr, value+inc)
+}
+
 func isStrSection(name string) bool {
 	return strings.HasPrefix(name, "rodatastr") || strings.HasPrefix(name, ".rodata.str")
 }
@@ -440,6 +448,11 @@ func (vm *VM) RunProgramWithRawMemory(bytes []byte, section string) (int, error)
 		case asm.StoreXAddOp(asm.DWord):
 			dstAddr := vm.regs[inst.Dst] + uint64(inst.Offset)
 			if err := vm.addUint64(dstAddr, vm.regs[inst.Src]); err != nil {
+				return ErrorCode, err
+			}
+		case asm.StoreXAddOp(asm.Word):
+			dstAddr := vm.regs[inst.Dst] + uint64(inst.Offset)
+			if err := vm.addUint32(dstAddr, uint32(vm.regs[inst.Src])); err != nil {
 				return ErrorCode, err
 			}
 
