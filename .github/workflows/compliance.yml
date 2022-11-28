@@ -1,0 +1,40 @@
+name: "Run conformance tests"
+
+on: push
+
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Checkout conformance repository
+        uses: actions/checkout@v3
+        with:
+          repository: Alan-Jowett/bpf_conformance
+          path: conformance
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libboost-all-dev
+
+      - name: Setup Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: '1.19'
+
+      - name: Go build test driver
+        run: |
+          go build -o test_driver ./conformance_tests
+
+      - name: Build conformance checker
+        working-directory: conformance
+        run: |
+          cmake -S . -B build
+          cmake --build build
+
+      - name: Run checker
+        run: |
+          ./conformance/build/bin/bpf_conformance_runner --test_file_directory ./conformance/tests --plugin_path ./test_driver
