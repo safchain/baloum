@@ -415,6 +415,27 @@ func (vm *VM) RunProgramWithRawMemory(bytes []byte, section string) (int, error)
 				return ErrorCode, err
 			}
 
+		case asm.StoreImmOp(asm.DWord):
+			dstAddr := vm.regs[inst.Dst] + uint64(inst.Offset)
+			if err := vm.setUint64(dstAddr, uint64(inst.Constant)); err != nil {
+				return ErrorCode, err
+			}
+		case asm.StoreImmOp(asm.Word):
+			dstAddr := vm.regs[inst.Dst] + uint64(inst.Offset)
+			if err := vm.setUint32(dstAddr, uint32(inst.Constant)); err != nil {
+				return ErrorCode, err
+			}
+		case asm.StoreImmOp(asm.Half):
+			dstAddr := vm.regs[inst.Dst] + uint64(inst.Offset)
+			if err := vm.setUint16(dstAddr, uint16(inst.Constant)); err != nil {
+				return ErrorCode, err
+			}
+		case asm.StoreImmOp(asm.Byte):
+			dstAddr := vm.regs[inst.Dst] + uint64(inst.Offset)
+			if err := vm.setUint8(dstAddr, uint8(inst.Constant)); err != nil {
+				return ErrorCode, err
+			}
+
 		//
 		case asm.StoreXAddOp(asm.DWord):
 			dstAddr := vm.regs[inst.Dst] + uint64(inst.Offset)
