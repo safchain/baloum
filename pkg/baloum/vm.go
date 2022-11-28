@@ -203,20 +203,46 @@ func (vm *VM) setUint8(addr uint64, value uint8) error {
 	return nil
 }
 
-func (vm *VM) addUint64(addr uint64, inc uint64) error {
+func (vm *VM) atomicUint64(addr uint64, inc uint64, imm int64) error {
 	value, err := vm.getUint64(addr)
 	if err != nil {
 		return err
 	}
-	return vm.setUint64(addr, value+inc)
+	var res uint64
+	switch imm {
+	case 0x00: // ADD
+		res = value + inc
+	case 0x40: // OR
+		res = value | inc
+	case 0x50: // AND
+		res = value & inc
+	case 0xa0: // XOR
+		res = value ^ inc
+	default:
+		return fmt.Errorf("unknown atomic operand: %d", imm)
+	}
+	return vm.setUint64(addr, res)
 }
 
-func (vm *VM) addUint32(addr uint64, inc uint32) error {
+func (vm *VM) atomicUint32(addr uint64, inc uint32, imm int64) error {
 	value, err := vm.getUint32(addr)
 	if err != nil {
 		return err
 	}
-	return vm.setUint32(addr, value+inc)
+	var res uint32
+	switch imm {
+	case 0x00: // ADD
+		res = value + inc
+	case 0x40: // OR
+		res = value | inc
+	case 0x50: // AND
+		res = value & inc
+	case 0xa0: // XOR
+		res = value ^ inc
+	default:
+		return fmt.Errorf("unknown atomic operand: %d", imm)
+	}
+	return vm.setUint32(addr, res)
 }
 
 func isStrSection(name string) bool {
@@ -447,12 +473,12 @@ func (vm *VM) RunProgramWithRawMemory(bytes []byte, section string) (int, error)
 		//
 		case asm.StoreXAddOp(asm.DWord):
 			dstAddr := vm.regs[inst.Dst] + uint64(inst.Offset)
-			if err := vm.addUint64(dstAddr, vm.regs[inst.Src]); err != nil {
+			if err := vm.atomicUint64(dstAddr, vm.regs[inst.Src], inst.Constant); err != nil {
 				return ErrorCode, err
 			}
 		case asm.StoreXAddOp(asm.Word):
 			dstAddr := vm.regs[inst.Dst] + uint64(inst.Offset)
-			if err := vm.addUint32(dstAddr, uint32(vm.regs[inst.Src])); err != nil {
+			if err := vm.atomicUint32(dstAddr, uint32(vm.regs[inst.Src]), inst.Constant); err != nil {
 				return ErrorCode, err
 			}
 
