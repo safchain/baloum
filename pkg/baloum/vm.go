@@ -493,11 +493,11 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 			if vm.regs[inst.Dst] == vm.regs[inst.Src] {
 				pc += int(inst.Offset)
 			}
-		case asm.OpCode(asm.Jump32Class).SetJumpOp(asm.JEq).SetSource(asm.ImmSource):
+		case JumpOpCode(asm.Jump32Class, asm.JEq, asm.ImmSource):
 			if uint32(vm.regs[inst.Dst]) == uint32(inst.Constant) {
 				pc += int(inst.Offset)
 			}
-		case asm.OpCode(asm.Jump32Class).SetJumpOp(asm.JEq).SetSource(asm.RegSource):
+		case JumpOpCode(asm.Jump32Class, asm.JEq, asm.RegSource):
 			if uint32(vm.regs[inst.Dst]) == uint32(vm.regs[inst.Src]) {
 				pc += int(inst.Offset)
 			}
@@ -513,12 +513,28 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 			if vm.regs[inst.Dst] != vm.regs[inst.Src] {
 				pc += int(inst.Offset)
 			}
+		case JumpOpCode(asm.Jump32Class, asm.JNE, asm.ImmSource):
+			if uint32(vm.regs[inst.Dst]) != uint32(inst.Constant) {
+				pc += int(inst.Offset)
+			}
+		case JumpOpCode(asm.Jump32Class, asm.JNE, asm.RegSource):
+			if uint32(vm.regs[inst.Dst]) != uint32(vm.regs[inst.Src]) {
+				pc += int(inst.Offset)
+			}
 		case asm.JGE.Op(asm.RegSource):
 			if vm.regs[inst.Dst] >= vm.regs[inst.Src] {
 				pc += int(inst.Offset)
 			}
 		case asm.JGE.Op(asm.ImmSource):
 			if vm.regs[inst.Dst] >= uint64(inst.Constant) {
+				pc += int(inst.Offset)
+			}
+		case JumpOpCode(asm.Jump32Class, asm.JGE, asm.ImmSource):
+			if uint32(vm.regs[inst.Dst]) >= uint32(inst.Constant) {
+				pc += int(inst.Offset)
+			}
+		case JumpOpCode(asm.Jump32Class, asm.JGE, asm.RegSource):
+			if uint32(vm.regs[inst.Dst]) >= uint32(vm.regs[inst.Src]) {
 				pc += int(inst.Offset)
 			}
 		case asm.JGT.Op(asm.RegSource):
@@ -529,6 +545,14 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 			if vm.regs[inst.Dst] > uint64(inst.Constant) {
 				pc += int(inst.Offset)
 			}
+		case JumpOpCode(asm.Jump32Class, asm.JGT, asm.ImmSource):
+			if uint32(vm.regs[inst.Dst]) > uint32(inst.Constant) {
+				pc += int(inst.Offset)
+			}
+		case JumpOpCode(asm.Jump32Class, asm.JGT, asm.RegSource):
+			if uint32(vm.regs[inst.Dst]) > uint32(vm.regs[inst.Src]) {
+				pc += int(inst.Offset)
+			}
 		case asm.JLE.Op(asm.RegSource):
 			if vm.regs[inst.Dst] <= vm.regs[inst.Src] {
 				pc += int(inst.Offset)
@@ -537,12 +561,28 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 			if vm.regs[inst.Dst] <= uint64(inst.Constant) {
 				pc += int(inst.Offset)
 			}
+		case JumpOpCode(asm.Jump32Class, asm.JLE, asm.ImmSource):
+			if uint32(vm.regs[inst.Dst]) <= uint32(inst.Constant) {
+				pc += int(inst.Offset)
+			}
+		case JumpOpCode(asm.Jump32Class, asm.JLE, asm.RegSource):
+			if uint32(vm.regs[inst.Dst]) <= uint32(vm.regs[inst.Src]) {
+				pc += int(inst.Offset)
+			}
 		case asm.JLT.Op(asm.RegSource):
 			if vm.regs[inst.Dst] < vm.regs[inst.Src] {
 				pc += int(inst.Offset)
 			}
 		case asm.JLT.Op(asm.ImmSource):
 			if vm.regs[inst.Dst] < uint64(inst.Constant) {
+				pc += int(inst.Offset)
+			}
+		case JumpOpCode(asm.Jump32Class, asm.JLT, asm.ImmSource):
+			if uint32(vm.regs[inst.Dst]) < uint32(inst.Constant) {
+				pc += int(inst.Offset)
+			}
+		case JumpOpCode(asm.Jump32Class, asm.JLT, asm.RegSource):
+			if uint32(vm.regs[inst.Dst]) < uint32(vm.regs[inst.Src]) {
 				pc += int(inst.Offset)
 			}
 
@@ -569,4 +609,8 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 
 func zeroExtend(in int32) uint64 {
 	return uint64(uint32(in))
+}
+
+func JumpOpCode(class asm.Class, jumpOp asm.JumpOp, source asm.Source) asm.OpCode {
+	return asm.OpCode(class).SetJumpOp(jumpOp).SetSource(source)
 }
