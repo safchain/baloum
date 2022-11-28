@@ -18,7 +18,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libboost-all-dev
+          sudo apt-get install -y libboost-program-options-dev libboost-filesystem-dev
 
       - name: Setup Go
         uses: actions/setup-go@v3
