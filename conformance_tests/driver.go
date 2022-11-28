@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/hex"
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -23,16 +22,19 @@ func main() {
 		panic(err)
 	}
 
-	memory := flag.Arg(0)
-
 	programByteCode, err := decode_hexa(string(program))
 	if err != nil {
 		panic(err)
 	}
 
-	_, err = decode_hexa(memory)
-	if err != nil {
-		panic(err)
+	var memoryBytes []byte
+	if len(os.Args) > 1 {
+		memory := os.Args[1]
+		mb, err := decode_hexa(memory)
+		if err != nil {
+			panic(err)
+		}
+		memoryBytes = mb
 	}
 
 	var instructions asm.Instructions
@@ -51,8 +53,7 @@ func main() {
 
 	vm := baloum.NewVM(spec, baloum.Opts{})
 
-	var ctx baloum.Context
-	code, err := vm.RunProgram(ctx, TEST_RUN_SECTION)
+	code, err := vm.RunProgramWithRawMemory(memoryBytes, TEST_RUN_SECTION)
 	if err != nil {
 		panic(err)
 	}
