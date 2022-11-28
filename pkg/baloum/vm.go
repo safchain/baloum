@@ -504,6 +504,30 @@ func (vm *VM) RunProgramWithRawMemory(bytes []byte, section string) (int, error)
 			} else {
 				vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) / uint32(vm.regs[inst.Src]))
 			}
+		case asm.Mod.Op(asm.ImmSource):
+			if uint64(inst.Constant) == 0 {
+				vm.regs[inst.Dst] = 1
+			} else {
+				vm.regs[inst.Dst] %= uint64(inst.Constant)
+			}
+		case asm.Mod.Op(asm.RegSource):
+			if uint64(vm.regs[inst.Src]) == 0 {
+				vm.regs[inst.Dst] = 1
+			} else {
+				vm.regs[inst.Dst] %= vm.regs[inst.Src]
+			}
+		case asm.Mod.Op32(asm.ImmSource):
+			if uint32(inst.Constant) == 0 {
+				vm.regs[inst.Dst] = 1
+			} else {
+				vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) % uint32(inst.Constant))
+			}
+		case asm.Mod.Op32(asm.RegSource):
+			if uint32(vm.regs[inst.Src]) == 0 {
+				vm.regs[inst.Dst] = 1
+			} else {
+				vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) % uint32(vm.regs[inst.Src]))
+			}
 		case asm.And.Op(asm.ImmSource):
 			vm.regs[inst.Dst] &= uint64(inst.Constant)
 		case asm.And.Op(asm.RegSource):
@@ -528,6 +552,12 @@ func (vm *VM) RunProgramWithRawMemory(bytes []byte, section string) (int, error)
 			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) ^ uint32(inst.Constant))
 		case asm.Xor.Op32(asm.RegSource):
 			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) ^ uint32(vm.regs[inst.Src]))
+
+		//
+		case asm.Neg.Op(asm.ImmSource):
+			vm.regs[inst.Dst] = -vm.regs[inst.Src]
+		case asm.Neg.Op32(asm.ImmSource):
+			vm.regs[inst.Dst] = zeroExtend(-int32(vm.regs[inst.Src]))
 
 		//
 		case asm.Ja.Op(asm.ImmSource):
