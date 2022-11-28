@@ -362,6 +362,14 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) >> uint32(inst.Constant))
 		case asm.RSh.Op32(asm.RegSource):
 			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) >> uint32(vm.regs[inst.Src]))
+		case asm.ArSh.Op(asm.ImmSource):
+			vm.regs[inst.Dst] = uint64(int64(vm.regs[inst.Dst]) >> uint64(inst.Constant))
+		case asm.ArSh.Op(asm.RegSource):
+			vm.regs[inst.Dst] = uint64(int64(vm.regs[inst.Dst]) >> uint64(vm.regs[inst.Src]))
+		case asm.ArSh.Op32(asm.ImmSource):
+			vm.regs[inst.Dst] = uint64(int32(vm.regs[inst.Dst]) >> uint32(inst.Constant))
+		case asm.ArSh.Op32(asm.RegSource):
+			vm.regs[inst.Dst] = uint64(int32(vm.regs[inst.Dst]) >> uint32(vm.regs[inst.Src]))
 
 		//
 		case asm.StoreMemOp(asm.DWord):
