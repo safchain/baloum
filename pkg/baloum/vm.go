@@ -397,6 +397,30 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) + uint32(inst.Constant))
 		case asm.Add.Op32(asm.RegSource):
 			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) + uint32(vm.regs[inst.Src]))
+		case asm.Sub.Op(asm.ImmSource):
+			vm.regs[inst.Dst] -= uint64(inst.Constant)
+		case asm.Sub.Op(asm.RegSource):
+			vm.regs[inst.Dst] -= vm.regs[inst.Src]
+		case asm.Sub.Op32(asm.ImmSource):
+			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) - uint32(inst.Constant))
+		case asm.Sub.Op32(asm.RegSource):
+			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) - uint32(vm.regs[inst.Src]))
+		case asm.Mul.Op(asm.ImmSource):
+			vm.regs[inst.Dst] *= uint64(inst.Constant)
+		case asm.Mul.Op(asm.RegSource):
+			vm.regs[inst.Dst] *= vm.regs[inst.Src]
+		case asm.Mul.Op32(asm.ImmSource):
+			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) * uint32(inst.Constant))
+		case asm.Mul.Op32(asm.RegSource):
+			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) * uint32(vm.regs[inst.Src]))
+		case asm.Div.Op(asm.ImmSource):
+			vm.regs[inst.Dst] /= uint64(inst.Constant)
+		case asm.Div.Op(asm.RegSource):
+			vm.regs[inst.Dst] /= vm.regs[inst.Src]
+		case asm.Div.Op32(asm.ImmSource):
+			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) / uint32(inst.Constant))
+		case asm.Div.Op32(asm.RegSource):
+			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) / uint32(vm.regs[inst.Src]))
 		case asm.And.Op(asm.ImmSource):
 			vm.regs[inst.Dst] &= uint64(inst.Constant)
 		case asm.And.Op(asm.RegSource):
