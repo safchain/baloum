@@ -58,7 +58,7 @@ func main() {
 		panic(err)
 	}
 
-	fmt.Printf("%x\n", code)
+	fmt.Printf("%x\n", uint64(code))
 }
 
 func decode_hexa(in string) ([]byte, error) {
