@@ -311,10 +311,10 @@ func getNormalizedInsts(prog *ebpf.ProgramSpec) []asm.Instruction {
 }
 
 func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
-	return vm.RunProgramWithRawMemory(ctx.Bytes(), section)
+	return vm.RunProgramWithRawMemory(ctx.Bytes(), section, false)
 }
 
-func (vm *VM) RunProgramWithRawMemory(bytes []byte, section string) (int, error) {
+func (vm *VM) RunProgramWithRawMemory(bytes []byte, section string, setLenInR2 bool) (int, error) {
 	var prog *ebpf.ProgramSpec
 	for _, p := range vm.Spec.Programs {
 		if progMatch(p, section) {
@@ -336,6 +336,9 @@ func (vm *VM) RunProgramWithRawMemory(bytes []byte, section string) (int, error)
 	vm.stack = make([]byte, vm.Opts.StackSize)
 	vm.regs[asm.RFP] = uint64(len(vm.stack))
 	vm.regs[asm.R1] = vm.heap.AllocWith(bytes)
+	if setLenInR2 {
+		vm.regs[asm.R2] = uint64(len(bytes))
+	}
 
 	if err := vm.maps.LoadMaps(vm.Spec, section); err != nil {
 		return ErrorCode, err
