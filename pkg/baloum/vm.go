@@ -553,6 +553,22 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 			if uint32(vm.regs[inst.Dst]) >= uint32(vm.regs[inst.Src]) {
 				pc += int(inst.Offset)
 			}
+		case asm.JSGE.Op(asm.RegSource):
+			if int64(vm.regs[inst.Dst]) >= int64(vm.regs[inst.Src]) {
+				pc += int(inst.Offset)
+			}
+		case asm.JSGE.Op(asm.ImmSource):
+			if int64(vm.regs[inst.Dst]) >= int64(inst.Constant) {
+				pc += int(inst.Offset)
+			}
+		case JumpOpCode(asm.Jump32Class, asm.JSGE, asm.ImmSource):
+			if int32(vm.regs[inst.Dst]) >= int32(inst.Constant) {
+				pc += int(inst.Offset)
+			}
+		case JumpOpCode(asm.Jump32Class, asm.JSGE, asm.RegSource):
+			if int32(vm.regs[inst.Dst]) >= int32(vm.regs[inst.Src]) {
+				pc += int(inst.Offset)
+			}
 		case asm.JGT.Op(asm.RegSource):
 			if vm.regs[inst.Dst] > vm.regs[inst.Src] {
 				pc += int(inst.Offset)
