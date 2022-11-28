@@ -18,6 +18,7 @@ package baloum
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"strings"
@@ -315,7 +316,8 @@ func (vm *VM) RunProgramWithRawMemory(bytes []byte, section string) (int, error)
 		vm.Opts.Logger.Debugf("%d > %v (%d)", pc, inst, inst.Size())
 		pc += int(inst.Size() / 8)
 
-		switch inst.OpCode {
+		opcode := inst.OpCode
+		switch opcode {
 		//
 		case asm.LoadMemOp(asm.DWord):
 			srcAddr := vm.regs[inst.Src] + uint64(inst.Offset)
@@ -429,6 +431,8 @@ func (vm *VM) RunProgramWithRawMemory(bytes []byte, section string) (int, error)
 			vm.regs[inst.Dst] = zeroExtend(int32(inst.Constant))
 		case asm.Mov.Op32(asm.RegSource):
 			vm.regs[inst.Dst] = zeroExtend(int32(vm.regs[inst.Src]))
+
+		//
 
 		//
 		case asm.Add.Op(asm.ImmSource):
@@ -700,7 +704,33 @@ func (vm *VM) RunProgramWithRawMemory(bytes []byte, section string) (int, error)
 		case asm.Exit.Op(asm.ImmSource):
 			return int(int32(vm.regs[asm.R0])), nil
 		default:
-			return ErrorCode, fmt.Errorf("unknown op: %v", inst)
+			if opcode.Class().IsALU() && opcode.ALUOp() == asm.Swap {
+				buff := make([]byte, 8)
+				var bo binary.ByteOrder
+				switch opcode.Endianness() {
+				case asm.LE:
+					bo = binary.LittleEndian
+				case asm.BE:
+					bo = binary.BigEndian
+				default:
+					return ErrorCode, fmt.Errorf("unknown endianness: %v", inst)
+				}
+
+				switch inst.Constant {
+				case 16:
+					ByteOrder.PutUint16(buff[:2], uint16(vm.regs[inst.Dst]))
+					vm.regs[inst.Dst] = uint64(bo.Uint16(buff[:2]))
+				case 32:
+					ByteOrder.PutUint32(buff[:4], uint32(vm.regs[inst.Dst]))
+					vm.regs[inst.Dst] = uint64(bo.Uint32(buff[:4]))
+				case 64:
+					ByteOrder.PutUint64(buff[:8], uint64(vm.regs[inst.Dst]))
+					vm.regs[inst.Dst] = uint64(bo.Uint64(buff[:8]))
+				}
+			} else {
+				return ErrorCode, fmt.Errorf("unknown op: %v", inst)
+			}
+
 		}
 	}
 
