@@ -17,15 +17,14 @@ limitations under the License.
 package main
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/cilium/ebpf"
-	"github.com/safchain/baloum/pkg/baloum"
+	"github.com/cilium/ebpf/link"
 	"go.uber.org/zap"
 )
 
-/*func main() {
+func main() {
 	logger, _ := zap.NewDevelopment()
 	defer logger.Sync()
 
@@ -66,9 +65,9 @@ import (
 
 	ch := make(chan bool)
 	<-ch
-}*/
+}
 
-func main() {
+/*func main() {
 	logger, _ := zap.NewDevelopment()
 	defer logger.Sync()
 
@@ -110,4 +109,4 @@ func main() {
 	}
 
 	fmt.Printf("Result: %s\n", string(data))
-}
+}*/

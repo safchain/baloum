@@ -9,7 +9,7 @@ src/%.c: include/baloum.h
 
 bin/%.o: src/%.c
 	mkdir -p bin
-	clang-12 -D__KERNEL__ -D__ASM_SYSREG_H -D__BALOUM__ \
+	clang-12 -D__KERNEL__ -D__ASM_SYSREG_H \
 		-Wno-unused-value \
 		-Wno-pointer-sign \
 		-Wno-compare-distinct-pointer-types \

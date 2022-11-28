@@ -55,6 +55,8 @@ int BPF_KPROBE(kprobe_vfs_open, struct path *path)
 
     bpf_map_update_elem(&inodes, &inode, open_data->filename, BPF_ANY);
 
+    bpf_printk("Map: %s => %d(%d)\n", open_data->filename, inode, tgid);
+
     return 0;
 };
 
