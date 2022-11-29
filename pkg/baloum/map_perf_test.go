@@ -43,8 +43,8 @@ func TestMapPerf(t *testing.T) {
 
 	vm := NewVM(spec, Opts{Logger: suggar})
 
-	var ctx Context
-	code, err := vm.RunProgram(ctx, "test/perf")
+	var ctx StdContext
+	code, err := vm.RunProgram(&ctx, "test/perf")
 	assert.Zero(t, code)
 	assert.Nil(t, err)
 

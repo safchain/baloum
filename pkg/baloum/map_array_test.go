@@ -44,8 +44,8 @@ func TestMapArray64(t *testing.T) {
 
 	vm := NewVM(spec, Opts{Logger: suggar})
 
-	var ctx Context
-	code, err := vm.RunProgram(ctx, "test/array64")
+	var ctx StdContext
+	code, err := vm.RunProgram(&ctx, "test/array64")
 	assert.Zero(t, code)
 	assert.Nil(t, err)
 
@@ -72,8 +72,8 @@ func TestMapArray32(t *testing.T) {
 
 	vm := NewVM(spec, Opts{Logger: suggar})
 
-	var ctx Context
-	code, err := vm.RunProgram(ctx, "test/array32")
+	var ctx StdContext
+	code, err := vm.RunProgram(&ctx, "test/array32")
 	assert.Zero(t, code)
 	assert.Nil(t, err)
 

@@ -53,7 +53,11 @@ func main() {
 
 	vm := baloum.NewVM(spec, baloum.Opts{})
 
-	code, err := vm.RunProgramWithRawMemory(memoryBytes, TEST_RUN_SECTION, true)
+	var ctx baloum.RawContext
+	ctx.Regs[asm.R1] = vm.Heap().AllocWith(memoryBytes)
+	ctx.Regs[asm.R2] = uint64(len(memoryBytes))
+
+	code, err := vm.RunProgram(&ctx, TEST_RUN_SECTION)
 	if err != nil {
 		panic(err)
 	}

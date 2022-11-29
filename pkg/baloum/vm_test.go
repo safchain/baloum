@@ -54,8 +54,8 @@ func TestCall(t *testing.T) {
 	t.Run("simple-call", func(t *testing.T) {
 		vm := NewVM(spec, Opts{Fncs: fncs, Logger: suggar})
 
-		var ctx Context
-		code, err := vm.RunProgram(ctx, "test/simple_call")
+		var ctx StdContext
+		code, err := vm.RunProgram(&ctx, "test/simple_call")
 		assert.Zero(t, code)
 		assert.Nil(t, err)
 
@@ -64,7 +64,7 @@ func TestCall(t *testing.T) {
 		assert.NotNil(t, data)
 		assert.Equal(t, uint64(12345), ByteOrder.Uint64(data))
 
-		code, err = vm.RunProgram(ctx, "kretprobe/vfs_open")
+		code, err = vm.RunProgram(&ctx, "kretprobe/vfs_open")
 		assert.Zero(t, code)
 		assert.Nil(t, err)
 
@@ -76,8 +76,8 @@ func TestCall(t *testing.T) {
 	t.Run("nested-call", func(t *testing.T) {
 		vm := NewVM(spec, Opts{Fncs: fncs, Logger: suggar})
 
-		var ctx Context
-		code, err := vm.RunProgram(ctx, "test/nested_call")
+		var ctx StdContext
+		code, err := vm.RunProgram(&ctx, "test/nested_call")
 		assert.Zero(t, code)
 		assert.Nil(t, err)
 
@@ -113,8 +113,8 @@ func TestKTime(t *testing.T) {
 
 	vm := NewVM(spec, Opts{Fncs: fncs, Logger: suggar})
 
-	var ctx Context
-	code, err := vm.RunProgram(ctx, "test/ktime")
+	var ctx StdContext
+	code, err := vm.RunProgram(&ctx, "test/ktime")
 	assert.Zero(t, code)
 	assert.Nil(t, err)
 }
@@ -146,8 +146,8 @@ func TestPrintk(t *testing.T) {
 
 	vm := NewVM(spec, Opts{Fncs: fncs, Logger: suggar})
 
-	var ctx Context
-	code, err := vm.RunProgram(ctx, "test/printk")
+	var ctx StdContext
+	code, err := vm.RunProgram(&ctx, "test/printk")
 	assert.Zero(t, code)
 	assert.Nil(t, err)
 	assert.Equal(t, "this is a printk test, values: 123:hello", printed)
@@ -171,8 +171,8 @@ func TestSyncAdd(t *testing.T) {
 
 	vm := NewVM(spec, Opts{Logger: suggar})
 
-	var ctx Context
-	code, err := vm.RunProgram(ctx, "test/sync_add")
+	var ctx StdContext
+	code, err := vm.RunProgram(&ctx, "test/sync_add")
 	assert.Zero(t, code)
 	assert.Nil(t, err)
 
