@@ -18,6 +18,7 @@ package baloum
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"strings"
@@ -28,6 +29,7 @@ import (
 
 const (
 	ErrorCode = int(-1)
+	fetchBit  = 0x01
 )
 
 type vmState struct {
@@ -142,6 +144,15 @@ func (vm *VM) getUint16(addr uint64) (uint16, error) {
 	return ByteOrder.Uint16(bytes), nil
 }
 
+func (vm *VM) getUint8(addr uint64) (uint8, error) {
+	bytes, err := vm.getBytes(addr, 1)
+	if err != nil {
+		return 0, err
+	}
+
+	return uint8(bytes[0]), nil
+}
+
 func (vm *VM) getString(addr uint64) (string, error) {
 	data, addr, err := vm.getMem(addr)
 	if err != nil {
@@ -193,12 +204,64 @@ func (vm *VM) setUint8(addr uint64, value uint8) error {
 	return nil
 }
 
-func (vm *VM) addUint64(addr uint64, inc uint64) error {
+func (vm *VM) atomicUint64(addr uint64, inc uint64, imm int64) (uint64, bool, error) {
 	value, err := vm.getUint64(addr)
 	if err != nil {
-		return err
+		return 0, false, err
 	}
-	return vm.setUint64(addr, value+inc)
+	var res uint64
+	switch imm & 0xF0 {
+	case 0x00: // ADD
+		res = value + inc
+	case 0x40: // OR
+		res = value | inc
+	case 0x50: // AND
+		res = value & inc
+	case 0xa0: // XOR
+		res = value ^ inc
+	case 0xe0: // XCHG
+		res = inc
+	case 0xf0: // CMPXCHG
+		if value == vm.regs[asm.R0] {
+			if err := vm.setUint64(addr, inc); err != nil {
+				return 0, false, err
+			}
+		}
+		return value, true, nil
+	default:
+		return 0, false, fmt.Errorf("unknown atomic operand: %d", imm)
+	}
+	return value, false, vm.setUint64(addr, res)
+}
+
+func (vm *VM) atomicUint32(addr uint64, inc uint32, imm int64) (uint32, bool, error) {
+	value, err := vm.getUint32(addr)
+	if err != nil {
+		return 0, false, err
+	}
+	var res uint32
+	switch imm & 0xF0 {
+	case 0x00: // ADD
+		res = value + inc
+	case 0x40: // OR
+		res = value | inc
+	case 0x50: // AND
+		res = value & inc
+	case 0xa0: // XOR
+		res = value ^ inc
+	case 0xe0: // XCHG
+		res = inc
+	case 0xf0: // CMPXCHG
+		if value == uint32(vm.regs[asm.R0]) {
+			if err := vm.setUint32(addr, inc); err != nil {
+				return 0, false, err
+			}
+		}
+		return value, true, nil
+	default:
+		return 0, false, fmt.Errorf("unknown atomic operand: %d", imm)
+	}
+	return value, false, vm.setUint32(addr, res)
 }
 
 func isStrSection(name string) bool {
@@ -267,6 +330,10 @@ func getNormalizedInsts(prog *ebpf.ProgramSpec) []asm.Instruction {
 }
 
 func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
+	return vm.RunProgramWithRawMemory(ctx.Bytes(), section, false)
+}
+
+func (vm *VM) RunProgramWithRawMemory(bytes []byte, section string, setLenInR2 bool) (int, error) {
 	var prog *ebpf.ProgramSpec
 	for _, p := range vm.Spec.Programs {
 		if progMatch(p, section) {
@@ -287,7 +354,10 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 	// new state
 	vm.stack = make([]byte, vm.Opts.StackSize)
 	vm.regs[asm.RFP] = uint64(len(vm.stack))
-	vm.regs[asm.R1] = vm.heap.AllocWith(ctx.Bytes())
+	vm.regs[asm.R1] = vm.heap.AllocWith(bytes)
+	if setLenInR2 {
+		vm.regs[asm.R2] = uint64(len(bytes))
+	}
 
 	if err := vm.maps.LoadMaps(vm.Spec, section); err != nil {
 		return ErrorCode, err
@@ -302,7 +372,8 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 		vm.Opts.Logger.Debugf("%d > %v (%d)", pc, inst, inst.Size())
 		pc += int(inst.Size() / 8)
 
-		switch inst.OpCode {
+		opcode := inst.OpCode
+		switch opcode {
 		//
 		case asm.LoadMemOp(asm.DWord):
 			srcAddr := vm.regs[inst.Src] + uint64(inst.Offset)
@@ -321,6 +392,13 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 		case asm.LoadMemOp(asm.Half):
 			srcAddr := vm.regs[inst.Src] + uint64(inst.Offset)
 			value, err := vm.getUint16(srcAddr)
+			if err != nil {
+				return ErrorCode, err
+			}
+			vm.regs[inst.Dst] = uint64(value)
+		case asm.LoadMemOp(asm.Byte):
+			srcAddr := vm.regs[inst.Src] + uint64(inst.Offset)
+			value, err := vm.getUint8(srcAddr)
 			if err != nil {
 				return ErrorCode, err
 			}
@@ -393,11 +471,53 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 				return ErrorCode, err
 			}
 
+		case asm.StoreImmOp(asm.DWord):
+			dstAddr := vm.regs[inst.Dst] + uint64(inst.Offset)
+			if err := vm.setUint64(dstAddr, uint64(inst.Constant)); err != nil {
+				return ErrorCode, err
+			}
+		case asm.StoreImmOp(asm.Word):
+			dstAddr := vm.regs[inst.Dst] + uint64(inst.Offset)
+			if err := vm.setUint32(dstAddr, uint32(inst.Constant)); err != nil {
+				return ErrorCode, err
+			}
+		case asm.StoreImmOp(asm.Half):
+			dstAddr := vm.regs[inst.Dst] + uint64(inst.Offset)
+			if err := vm.setUint16(dstAddr, uint16(inst.Constant)); err != nil {
+				return ErrorCode, err
+			}
+		case asm.StoreImmOp(asm.Byte):
+			dstAddr := vm.regs[inst.Dst] + uint64(inst.Offset)
+			if err := vm.setUint8(dstAddr, uint8(inst.Constant)); err != nil {
+				return ErrorCode, err
+			}
+
 		//
 		case asm.StoreXAddOp(asm.DWord):
 			dstAddr := vm.regs[inst.Dst] + uint64(inst.Offset)
-			if err := vm.addUint64(dstAddr, vm.regs[inst.Src]); err != nil {
+			oldValue, overrideSrcWithR0, err := vm.atomicUint64(dstAddr, vm.regs[inst.Src], inst.Constant)
+			if err != nil {
 				return ErrorCode, err
+			}
+			if inst.Constant&fetchBit != 0 {
+				if overrideSrcWithR0 {
+					vm.regs[asm.R0] = oldValue
+				} else {
+					vm.regs[inst.Src] = oldValue
+				}
+			}
+		case asm.StoreXAddOp(asm.Word):
+			dstAddr := vm.regs[inst.Dst] + uint64(inst.Offset)
+			oldValue, overrideSrcWithR0, err := vm.atomicUint32(dstAddr, uint32(vm.regs[inst.Src]), inst.Constant)
+			if err != nil {
+				return ErrorCode, err
+			}
+			if inst.Constant&fetchBit != 0 {
+				if overrideSrcWithR0 {
+					vm.regs[asm.R0] = uint64(oldValue)
+				} else {
+					vm.regs[inst.Src] = uint64(oldValue)
+				}
 			}
 
 		//
@@ -409,6 +529,8 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 			vm.regs[inst.Dst] = zeroExtend(int32(inst.Constant))
 		case asm.Mov.Op32(asm.RegSource):
 			vm.regs[inst.Dst] = zeroExtend(int32(vm.regs[inst.Src]))
+
+		//
 
 		//
 		case asm.Add.Op(asm.ImmSource):
@@ -459,6 +581,30 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 			} else {
 				vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) / uint32(vm.regs[inst.Src]))
 			}
+		case asm.Mod.Op(asm.ImmSource):
+			if uint64(inst.Constant) == 0 {
+				vm.regs[inst.Dst] = 1
+			} else {
+				vm.regs[inst.Dst] %= uint64(inst.Constant)
+			}
+		case asm.Mod.Op(asm.RegSource):
+			if uint64(vm.regs[inst.Src]) == 0 {
+				vm.regs[inst.Dst] = 1
+			} else {
+				vm.regs[inst.Dst] %= vm.regs[inst.Src]
+			}
+		case asm.Mod.Op32(asm.ImmSource):
+			if uint32(inst.Constant) == 0 {
+				vm.regs[inst.Dst] = 1
+			} else {
+				vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) % uint32(inst.Constant))
+			}
+		case asm.Mod.Op32(asm.RegSource):
+			if uint32(vm.regs[inst.Src]) == 0 {
+				vm.regs[inst.Dst] = 1
+			} else {
+				vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) % uint32(vm.regs[inst.Src]))
+			}
 		case asm.And.Op(asm.ImmSource):
 			vm.regs[inst.Dst] &= uint64(inst.Constant)
 		case asm.And.Op(asm.RegSource):
@@ -485,6 +631,16 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) ^ uint32(vm.regs[inst.Src]))
 
 		//
+		case asm.Neg.Op(asm.ImmSource):
+			vm.regs[inst.Dst] = -vm.regs[inst.Src]
+		case asm.Neg.Op32(asm.ImmSource):
+			vm.regs[inst.Dst] = zeroExtend(-int32(vm.regs[inst.Src]))
+
+		//
+		case asm.Ja.Op(asm.ImmSource):
+			pc += int(inst.Offset)
+		case asm.Ja.Op(asm.RegSource):
+			pc += int(vm.regs[inst.Src])
 		case asm.JEq.Op(asm.ImmSource):
 			if vm.regs[inst.Dst] == uint64(inst.Constant) {
 				pc += int(inst.Offset)
@@ -501,10 +657,22 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 			if uint32(vm.regs[inst.Dst]) == uint32(vm.regs[inst.Src]) {
 				pc += int(inst.Offset)
 			}
-		case asm.Ja.Op(asm.ImmSource):
-			pc += int(inst.Offset)
-		case asm.Ja.Op(asm.RegSource):
-			pc += int(vm.regs[inst.Src])
+		case asm.JSet.Op(asm.ImmSource):
+			if (vm.regs[inst.Dst] & uint64(inst.Constant)) != 0 {
+				pc += int(inst.Offset)
+			}
+		case asm.JSet.Op(asm.RegSource):
+			if (vm.regs[inst.Dst] & vm.regs[inst.Src]) != 0 {
+				pc += int(inst.Offset)
+			}
+		case JumpOpCode(asm.Jump32Class, asm.JSet, asm.ImmSource):
+			if (uint32(vm.regs[inst.Dst]) & uint32(inst.Constant)) != 0 {
+				pc += int(inst.Offset)
+			}
+		case JumpOpCode(asm.Jump32Class, asm.JSet, asm.RegSource):
+			if (uint32(vm.regs[inst.Dst]) & uint32(vm.regs[inst.Src])) != 0 {
+				pc += int(inst.Offset)
+			}
 		case asm.JNE.Op(asm.ImmSource):
 			if vm.regs[inst.Dst] != uint64(inst.Constant) {
 				pc += int(inst.Offset)
@@ -537,6 +705,22 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 			if uint32(vm.regs[inst.Dst]) >= uint32(vm.regs[inst.Src]) {
 				pc += int(inst.Offset)
 			}
+		case asm.JSGE.Op(asm.RegSource):
+			if int64(vm.regs[inst.Dst]) >= int64(vm.regs[inst.Src]) {
+				pc += int(inst.Offset)
+			}
+		case asm.JSGE.Op(asm.ImmSource):
+			if int64(vm.regs[inst.Dst]) >= inst.Constant {
+				pc += int(inst.Offset)
+			}
+		case JumpOpCode(asm.Jump32Class, asm.JSGE, asm.ImmSource):
+			if int32(vm.regs[inst.Dst]) >= int32(inst.Constant) {
+				pc += int(inst.Offset)
+			}
+		case JumpOpCode(asm.Jump32Class, asm.JSGE, asm.RegSource):
+			if int32(vm.regs[inst.Dst]) >= int32(vm.regs[inst.Src]) {
+				pc += int(inst.Offset)
+			}
 		case asm.JGT.Op(asm.RegSource):
 			if vm.regs[inst.Dst] > vm.regs[inst.Src] {
 				pc += int(inst.Offset)
@@ -551,6 +735,22 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 			}
 		case JumpOpCode(asm.Jump32Class, asm.JGT, asm.RegSource):
 			if uint32(vm.regs[inst.Dst]) > uint32(vm.regs[inst.Src]) {
+				pc += int(inst.Offset)
+			}
+		case asm.JSGT.Op(asm.RegSource):
+			if int64(vm.regs[inst.Dst]) > int64(vm.regs[inst.Src]) {
+				pc += int(inst.Offset)
+			}
+		case asm.JSGT.Op(asm.ImmSource):
+			if int64(vm.regs[inst.Dst]) > inst.Constant {
+				pc += int(inst.Offset)
+			}
+		case JumpOpCode(asm.Jump32Class, asm.JSGT, asm.ImmSource):
+			if int32(vm.regs[inst.Dst]) > int32(inst.Constant) {
+				pc += int(inst.Offset)
+			}
+		case JumpOpCode(asm.Jump32Class, asm.JSGT, asm.RegSource):
+			if int32(vm.regs[inst.Dst]) > int32(vm.regs[inst.Src]) {
 				pc += int(inst.Offset)
 			}
 		case asm.JLE.Op(asm.RegSource):
@@ -569,6 +769,22 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 			if uint32(vm.regs[inst.Dst]) <= uint32(vm.regs[inst.Src]) {
 				pc += int(inst.Offset)
 			}
+		case asm.JSLE.Op(asm.RegSource):
+			if int64(vm.regs[inst.Dst]) <= int64(vm.regs[inst.Src]) {
+				pc += int(inst.Offset)
+			}
+		case asm.JSLE.Op(asm.ImmSource):
+			if int64(vm.regs[inst.Dst]) <= inst.Constant {
+				pc += int(inst.Offset)
+			}
+		case JumpOpCode(asm.Jump32Class, asm.JSLE, asm.ImmSource):
+			if int32(vm.regs[inst.Dst]) <= int32(inst.Constant) {
+				pc += int(inst.Offset)
+			}
+		case JumpOpCode(asm.Jump32Class, asm.JSLE, asm.RegSource):
+			if int32(vm.regs[inst.Dst]) <= int32(vm.regs[inst.Src]) {
+				pc += int(inst.Offset)
+			}
 		case asm.JLT.Op(asm.RegSource):
 			if vm.regs[inst.Dst] < vm.regs[inst.Src] {
 				pc += int(inst.Offset)
@@ -583,6 +799,22 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 			}
 		case JumpOpCode(asm.Jump32Class, asm.JLT, asm.RegSource):
 			if uint32(vm.regs[inst.Dst]) < uint32(vm.regs[inst.Src]) {
+				pc += int(inst.Offset)
+			}
+		case asm.JSLT.Op(asm.RegSource):
+			if int64(vm.regs[inst.Dst]) < int64(vm.regs[inst.Src]) {
+				pc += int(inst.Offset)
+			}
+		case asm.JSLT.Op(asm.ImmSource):
+			if int64(vm.regs[inst.Dst]) < inst.Constant {
+				pc += int(inst.Offset)
+			}
+		case JumpOpCode(asm.Jump32Class, asm.JSLT, asm.ImmSource):
+			if int32(vm.regs[inst.Dst]) < int32(inst.Constant) {
+				pc += int(inst.Offset)
+			}
+		case JumpOpCode(asm.Jump32Class, asm.JSLT, asm.RegSource):
+			if int32(vm.regs[inst.Dst]) < int32(vm.regs[inst.Src]) {
 				pc += int(inst.Offset)
 			}
 
@@ -600,7 +832,33 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 		case asm.Exit.Op(asm.ImmSource):
 			return int(int32(vm.regs[asm.R0])), nil
 		default:
-			return ErrorCode, fmt.Errorf("unknown op: %v", inst)
+			if opcode.Class().IsALU() && opcode.ALUOp() == asm.Swap {
+				buff := make([]byte, 8)
+				var bo binary.ByteOrder
+				switch opcode.Endianness() {
+				case asm.LE:
+					bo = binary.LittleEndian
+				case asm.BE:
+					bo = binary.BigEndian
+				default:
+					return ErrorCode, fmt.Errorf("unknown endianness: %v", inst)
+				}
+
+				switch inst.Constant {
+				case 16:
+					ByteOrder.PutUint16(buff[:2], uint16(vm.regs[inst.Dst]))
+					vm.regs[inst.Dst] = uint64(bo.Uint16(buff[:2]))
+				case 32:
+					ByteOrder.PutUint32(buff[:4], uint32(vm.regs[inst.Dst]))
+					vm.regs[inst.Dst] = uint64(bo.Uint32(buff[:4]))
+				case 64:
+					ByteOrder.PutUint64(buff[:8], uint64(vm.regs[inst.Dst]))
+					vm.regs[inst.Dst] = uint64(bo.Uint64(buff[:8]))
+				}
+			} else {
+				return ErrorCode, fmt.Errorf("unknown op: %v", inst)
+			}
+
 		}
 	}
 
