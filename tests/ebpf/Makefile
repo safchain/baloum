@@ -5,8 +5,6 @@ all: $(PROGS)
 
 src/%.c: include/baloum.h
 
-#-g -S
-
 bin/%.o: src/%.c
 	mkdir -p bin
 	clang-12 -D__KERNEL__ -D__ASM_SYSREG_H -D__BALOUM__ \
@@ -16,7 +14,7 @@ bin/%.o: src/%.c
 		-Wunused \
 		-Wall \
 		-Werror \
-		-I include \
+		-I ../../ebpf/include \
 		-I/lib/modules/$$(uname -r)/build/include \
 		-I/lib/modules/$$(uname -r)/build/include/uapi \
 		-I/lib/modules/$$(uname -r)/build/include/generated/uapi \

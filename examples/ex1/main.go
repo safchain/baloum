@@ -17,21 +17,23 @@ limitations under the License.
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 
 	"github.com/cilium/ebpf"
+	"github.com/cilium/ebpf/link"
 	"github.com/safchain/baloum/pkg/baloum"
 	"go.uber.org/zap"
 )
 
-/*func main() {
+func run() {
 	logger, _ := zap.NewDevelopment()
 	defer logger.Sync()
 
 	suggar := logger.Sugar()
 
-	reader, err := os.Open("../../ebpf/bin/ex1.o")
+	reader, err := os.Open("./ebpf/bin/ex1.o")
 	if err != nil {
 		suggar.Fatal(err)
 	}
@@ -65,16 +67,18 @@ import (
 	defer kp.Close()
 
 	ch := make(chan bool)
-	<-ch
-}*/
 
-func main() {
+	fmt.Println("Started, ctrl-c to stop")
+	<-ch
+}
+
+func runTest() {
 	logger, _ := zap.NewDevelopment()
 	defer logger.Sync()
 
 	suggar := logger.Sugar()
 
-	reader, err := os.Open("../../ebpf/bin/ex1.o")
+	reader, err := os.Open("./ebpf/bin/ex1.o")
 	if err != nil {
 		suggar.Fatal(err)
 	}
@@ -111,4 +115,15 @@ func main() {
 	}
 
 	fmt.Printf("Result: %s\n", string(data))
+}
+
+func main() {
+	var test = flag.Bool("test", false, "run test program")
+	flag.Parse()
+
+	if *test {
+		runTest()
+	} else {
+		run()
+	}
 }
