@@ -43,15 +43,15 @@ func TestCall(t *testing.T) {
 		suggar.Fatal(err)
 	}
 
-	tgid := uint64(33)
-
-	fncs := Fncs{
-		GetCurrentPidTgid: func(vm *VM) (uint64, error) {
-			return tgid, nil
-		},
-	}
-
 	t.Run("simple-call", func(t *testing.T) {
+		tgid := uint64(33)
+
+		fncs := Fncs{
+			GetCurrentPidTgid: func(vm *VM) (uint64, error) {
+				return tgid, nil
+			},
+		}
+
 		vm := NewVM(spec, Opts{Fncs: fncs, Logger: suggar})
 
 		var ctx StdContext
@@ -74,6 +74,37 @@ func TestCall(t *testing.T) {
 	})
 
 	t.Run("nested-call", func(t *testing.T) {
+		tgid := uint64(33)
+
+		fncs := Fncs{
+			GetCurrentPidTgid: func(vm *VM) (uint64, error) {
+				return tgid, nil
+			},
+		}
+
+		vm := NewVM(spec, Opts{Fncs: fncs, Logger: suggar})
+
+		var ctx StdContext
+		code, err := vm.RunProgram(&ctx, "test/nested_call")
+		assert.Zero(t, code)
+		assert.Nil(t, err)
+
+		data, err := vm.Map("cache").Lookup(tgid)
+		assert.Nil(t, err)
+		assert.Nil(t, data)
+	})
+
+	t.Run("ebpf-helper", func(t *testing.T) {
+		tgid := uint64(33)
+
+		fncs := Fncs{
+			GetCurrentPidTgid: func(vm *VM) (uint64, error) {
+				var ctx StdContext
+				ret, err := vm.RunProgram(&ctx, "helper/get_pid_tgid")
+				return uint64(ret), err
+			},
+		}
+
 		vm := NewVM(spec, Opts{Fncs: fncs, Logger: suggar})
 
 		var ctx StdContext
