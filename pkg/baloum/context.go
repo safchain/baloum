@@ -18,11 +18,17 @@ package baloum
 
 import (
 	"errors"
+
+	"github.com/cilium/ebpf/asm"
 )
 
 const (
 	CTX_SIZE = 5 * 8 // 5 argument
 )
+
+type Context interface {
+	SetRegs(vm *VM)
+}
 
 /*
 struct baloum_ctx {
@@ -33,7 +39,7 @@ struct baloum_ctx {
 	u64 arg4;
 };
 */
-type Context struct {
+type StdContext struct {
 	Arg0 uint64
 	Arg1 uint64
 	Arg2 uint64
@@ -41,7 +47,7 @@ type Context struct {
 	Arg4 uint64
 }
 
-func (ctx *Context) Parse(data []byte) error {
+func (ctx *StdContext) Parse(data []byte) error {
 	if len(data) < CTX_SIZE {
 		return errors.New("not enough data")
 	}
@@ -58,4 +64,16 @@ func (ctx *Context) Parse(data []byte) error {
 	ctx.Arg4 = ByteOrder.Uint64(data[offset : offset+8])
 
 	return nil
+}
+
+func (ctx *StdContext) SetRegs(vm *VM) {
+	vm.regs[asm.R1] = vm.heap.AllocWith(ctx.Bytes())
+}
+
+type RawContext struct {
+	Regs Regs
+}
+
+func (ctx *RawContext) SetRegs(vm *VM) {
+	vm.regs = ctx.Regs
 }

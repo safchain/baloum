@@ -39,6 +39,12 @@ int BPF_KRETPROBE(kretprobe_vfs_open, int ret)
 
 #include "baloum.h"
 
+SEC("helper/get_pid_tgid")
+int helper_get_pid_tgid()
+{
+    return 33;
+}
+
 SEC("test/simple_call")
 int test_simple_call()
 {

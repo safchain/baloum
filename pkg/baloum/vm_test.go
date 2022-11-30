@@ -33,7 +33,7 @@ func TestCall(t *testing.T) {
 
 	suggar := logger.Sugar()
 
-	reader, err := os.Open("../../ebpf/bin/test_call.o")
+	reader, err := os.Open("../../tests/ebpf/bin/test_call.o")
 	if err != nil {
 		suggar.Fatal(err)
 	}
@@ -43,19 +43,19 @@ func TestCall(t *testing.T) {
 		suggar.Fatal(err)
 	}
 
-	tgid := uint64(33)
-
-	fncs := Fncs{
-		GetCurrentPidTgid: func(vm *VM) (uint64, error) {
-			return tgid, nil
-		},
-	}
-
 	t.Run("simple-call", func(t *testing.T) {
+		tgid := uint64(33)
+
+		fncs := Fncs{
+			GetCurrentPidTgid: func(vm *VM) (uint64, error) {
+				return tgid, nil
+			},
+		}
+
 		vm := NewVM(spec, Opts{Fncs: fncs, Logger: suggar})
 
-		var ctx Context
-		code, err := vm.RunProgram(ctx, "test/simple_call")
+		var ctx StdContext
+		code, err := vm.RunProgram(&ctx, "test/simple_call")
 		assert.Zero(t, code)
 		assert.Nil(t, err)
 
@@ -64,7 +64,7 @@ func TestCall(t *testing.T) {
 		assert.NotNil(t, data)
 		assert.Equal(t, uint64(12345), ByteOrder.Uint64(data))
 
-		code, err = vm.RunProgram(ctx, "kretprobe/vfs_open")
+		code, err = vm.RunProgram(&ctx, "kretprobe/vfs_open")
 		assert.Zero(t, code)
 		assert.Nil(t, err)
 
@@ -74,10 +74,41 @@ func TestCall(t *testing.T) {
 	})
 
 	t.Run("nested-call", func(t *testing.T) {
+		tgid := uint64(33)
+
+		fncs := Fncs{
+			GetCurrentPidTgid: func(vm *VM) (uint64, error) {
+				return tgid, nil
+			},
+		}
+
 		vm := NewVM(spec, Opts{Fncs: fncs, Logger: suggar})
 
-		var ctx Context
-		code, err := vm.RunProgram(ctx, "test/nested_call")
+		var ctx StdContext
+		code, err := vm.RunProgram(&ctx, "test/nested_call")
+		assert.Zero(t, code)
+		assert.Nil(t, err)
+
+		data, err := vm.Map("cache").Lookup(tgid)
+		assert.Nil(t, err)
+		assert.Nil(t, data)
+	})
+
+	t.Run("ebpf-helper", func(t *testing.T) {
+		tgid := uint64(33)
+
+		fncs := Fncs{
+			GetCurrentPidTgid: func(vm *VM) (uint64, error) {
+				var ctx StdContext
+				ret, err := vm.RunProgram(&ctx, "helper/get_pid_tgid")
+				return uint64(ret), err
+			},
+		}
+
+		vm := NewVM(spec, Opts{Fncs: fncs, Logger: suggar})
+
+		var ctx StdContext
+		code, err := vm.RunProgram(&ctx, "test/nested_call")
 		assert.Zero(t, code)
 		assert.Nil(t, err)
 
@@ -93,7 +124,7 @@ func TestKTime(t *testing.T) {
 
 	suggar := logger.Sugar()
 
-	reader, err := os.Open("../../ebpf/bin/test_ktime.o")
+	reader, err := os.Open("../../tests/ebpf/bin/test_ktime.o")
 	if err != nil {
 		suggar.Fatal(err)
 	}
@@ -113,45 +144,10 @@ func TestKTime(t *testing.T) {
 
 	vm := NewVM(spec, Opts{Fncs: fncs, Logger: suggar})
 
-	var ctx Context
-	code, err := vm.RunProgram(ctx, "test/ktime")
+	var ctx StdContext
+	code, err := vm.RunProgram(&ctx, "test/ktime")
 	assert.Zero(t, code)
 	assert.Nil(t, err)
-}
-
-func TestMapPerf(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
-
-	suggar := logger.Sugar()
-
-	reader, err := os.Open("../../ebpf/bin/test_map_perf.o")
-	if err != nil {
-		suggar.Fatal(err)
-	}
-
-	spec, err := ebpf.LoadCollectionSpecFromReader(reader)
-	if err != nil {
-		suggar.Fatal(err)
-	}
-
-	vm := NewVM(spec, Opts{Logger: suggar})
-
-	var ctx Context
-	code, err := vm.RunProgram(ctx, "test/perf")
-	assert.Zero(t, code)
-	assert.Nil(t, err)
-
-	events, err := vm.Map("events").Read()
-	assert.Nil(t, err)
-
-	data := <-events
-
-	key := ByteOrder.Uint64(data[0:8])
-	assert.Equal(t, uint64(123), key)
-
-	value := ByteOrder.Uint64(data[8:16])
-	assert.Equal(t, uint64(456), value)
 }
 
 func TestPrintk(t *testing.T) {
@@ -160,7 +156,7 @@ func TestPrintk(t *testing.T) {
 
 	suggar := logger.Sugar()
 
-	reader, err := os.Open("../../ebpf/bin/test_printk.o")
+	reader, err := os.Open("../../tests/ebpf/bin/test_printk.o")
 	if err != nil {
 		suggar.Fatal(err)
 	}
@@ -181,95 +177,11 @@ func TestPrintk(t *testing.T) {
 
 	vm := NewVM(spec, Opts{Fncs: fncs, Logger: suggar})
 
-	var ctx Context
-	code, err := vm.RunProgram(ctx, "test/printk")
+	var ctx StdContext
+	code, err := vm.RunProgram(&ctx, "test/printk")
 	assert.Zero(t, code)
 	assert.Nil(t, err)
 	assert.Equal(t, "this is a printk test, values: 123:hello", printed)
-}
-
-func TestMapArray64(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
-
-	suggar := logger.Sugar()
-
-	reader, err := os.Open("../../ebpf/bin/test_map_array.o")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	spec, err := ebpf.LoadCollectionSpecFromReader(reader)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	vm := NewVM(spec, Opts{Logger: suggar})
-
-	var ctx Context
-	code, err := vm.RunProgram(ctx, "test/array64")
-	assert.Zero(t, code)
-	assert.Nil(t, err)
-
-	data, err := vm.Map("cache64").Lookup(uint64(4))
-	assert.Nil(t, err)
-	assert.Equal(t, uint64(44), ByteOrder.Uint64(data))
-}
-
-func TestMapArray32(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
-
-	suggar := logger.Sugar()
-
-	reader, err := os.Open("../../ebpf/bin/test_map_array.o")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	spec, err := ebpf.LoadCollectionSpecFromReader(reader)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	vm := NewVM(spec, Opts{Logger: suggar})
-
-	var ctx Context
-	code, err := vm.RunProgram(ctx, "test/array32")
-	assert.Zero(t, code)
-	assert.Nil(t, err)
-
-	data, err := vm.Map("cache32").Lookup(uint32(4))
-	assert.Nil(t, err)
-	assert.Equal(t, uint32(44), ByteOrder.Uint32(data))
-}
-
-func TestPerCPUMapArray(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
-
-	suggar := logger.Sugar()
-
-	reader, err := os.Open("../../ebpf/bin/test_map_array.o")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	spec, err := ebpf.LoadCollectionSpecFromReader(reader)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	vm := NewVM(spec, Opts{Logger: suggar})
-
-	var ctx Context
-	code, err := vm.RunProgram(ctx, "test/array_cpu")
-	assert.Zero(t, code)
-	assert.Nil(t, err)
-
-	data, err := vm.Map("cache_cpu").Lookup(uint64(4))
-	assert.Nil(t, err)
-	assert.Equal(t, uint64(44), ByteOrder.Uint64(data))
 }
 
 func TestSyncAdd(t *testing.T) {
@@ -278,7 +190,7 @@ func TestSyncAdd(t *testing.T) {
 
 	suggar := logger.Sugar()
 
-	reader, err := os.Open("../../ebpf/bin/test_sync_add.o")
+	reader, err := os.Open("../../tests/ebpf/bin/test_sync_add.o")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -290,8 +202,8 @@ func TestSyncAdd(t *testing.T) {
 
 	vm := NewVM(spec, Opts{Logger: suggar})
 
-	var ctx Context
-	code, err := vm.RunProgram(ctx, "test/sync_add")
+	var ctx StdContext
+	code, err := vm.RunProgram(&ctx, "test/sync_add")
 	assert.Zero(t, code)
 	assert.Nil(t, err)
 

@@ -83,7 +83,7 @@ func FnCallImpl(vm *VM, inst *asm.Instruction) error {
 	if err != nil {
 		return err
 	}
-	var ctx Context
+	var ctx StdContext
 	if err := ctx.Parse(data); err != nil {
 		return err
 	}
@@ -95,7 +95,7 @@ func FnCallImpl(vm *VM, inst *asm.Instruction) error {
 
 	vm.Opts.Logger.Debugf("> UseBPF call %s", section)
 
-	code, err := vm.RunProgram(ctx, section)
+	code, err := vm.RunProgram(&ctx, section)
 	if err != nil {
 		return err
 	}

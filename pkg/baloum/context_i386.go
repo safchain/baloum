@@ -16,7 +16,7 @@ limitations under the License.
 
 package baloum
 
-func (ctx *Context) Bytes() []byte {
+func (ctx *StdContext) Bytes() []byte {
 	data := make([]byte, 168)
 
 	ByteOrder.PutUint64(data[112:], ctx.Arg0)

@@ -27,7 +27,7 @@ jobs:
 
       - name: Go build test driver
         run: |
-          go build -o test_driver ./conformance_tests
+          go build -o test_driver ./tests/conformance
 
       - name: Build conformance checker
         working-directory: conformance

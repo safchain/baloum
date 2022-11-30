@@ -55,13 +55,17 @@ func (m *MapPerCPUArrayStorage) Lookup(key []byte) (uint64, error) {
 		return 0, errors.New("incorrect key size")
 	}
 
-	if idx > len(m.data) {
-		return 0, errors.New("out of bound")
-	}
-
 	cpu, err := m.getCPU()
 	if err != nil {
 		return 0, err
+	}
+
+	if int(cpu) > len(m.data) {
+		return 0, errors.New("out of bound")
+	}
+
+	if idx > len(m.data[cpu]) {
+		return 0, errors.New("out of bound")
 	}
 
 	return m.data[cpu][idx], nil
