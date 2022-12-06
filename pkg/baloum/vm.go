@@ -29,7 +29,9 @@ import (
 
 const (
 	ErrorCode = int(-1)
-	fetchBit  = 0x01
+
+	// bitmasks
+	fetchBit = 0x01
 )
 
 type vmState struct {
@@ -315,33 +317,21 @@ func (vm *VM) initFncs() {
 	}
 }
 
-func getNormalizedInsts(prog *ebpf.ProgramSpec) []asm.Instruction {
-	var insts []asm.Instruction
+func normalizedInsts(insts []asm.Instruction) []asm.Instruction {
+	var normInsts []asm.Instruction
 
-	for _, inst := range prog.Instructions {
-		insts = append(insts, inst)
+	for _, inst := range insts {
+		normInsts = append(normInsts, inst)
 		if inst.Size() > 8 {
 			// add a placeholder nop instruction
-			insts = append(insts, asm.Instruction{})
+			normInsts = append(normInsts, asm.Instruction{})
 		}
 	}
 
-	return insts
+	return normInsts
 }
 
-func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
-	var prog *ebpf.ProgramSpec
-	for _, p := range vm.Spec.Programs {
-		if progMatch(p, section) {
-			prog = p
-			break
-		}
-	}
-
-	if prog == nil {
-		return ErrorCode, fmt.Errorf("program not found: %s", section)
-	}
-
+func (vm *VM) RunInstructions(ctx Context, insts []asm.Instruction) (int, error) {
 	state := vm.saveState()
 	defer func() {
 		vm.loadState(state)
@@ -352,12 +342,6 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 	// new state
 	vm.stack = make([]byte, vm.Opts.StackSize)
 	vm.regs[asm.RFP] = uint64(len(vm.stack))
-
-	if err := vm.maps.LoadMaps(vm.Spec, section); err != nil {
-		return ErrorCode, err
-	}
-
-	insts := getNormalizedInsts(prog)
 
 	var pc int
 	for pc != len(insts) {
@@ -814,12 +798,27 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 
 		//
 		case asm.OpCode(asm.JumpClass).SetJumpOp(asm.Call):
-			if fnc := vm.fncs[asm.BuiltinFunc(inst.Constant)]; fnc != nil {
-				if err := fnc(vm, &inst); err != nil {
-					return ErrorCode, err
+			switch inst.Src {
+			case 0:
+				// helpers
+				if fnc := vm.fncs[asm.BuiltinFunc(inst.Constant)]; fnc != nil {
+					if err := fnc(vm, &inst); err != nil {
+						return ErrorCode, err
+					}
+				} else {
+					return ErrorCode, fmt.Errorf("unknown function: `%v`", inst.Src)
 				}
-			} else {
-				return ErrorCode, fmt.Errorf("unknown function: %v", inst)
+				// local
+			case 1:
+				ctx := RawContext{Regs: vm.regs}
+				res, err := vm.RunInstructions(&ctx, insts[int64(pc)+inst.Constant:])
+				if err != nil {
+					return res, err
+				}
+				vm.regs[asm.R0] = uint64(res)
+			case 2:
+				// runtime
+				return ErrorCode, fmt.Errorf("not supported function call: `%v`", inst.Src)
 			}
 
 		//
@@ -857,6 +856,26 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 	}
 
 	return ErrorCode, errors.New("unexpected error")
+}
+
+func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
+	var prog *ebpf.ProgramSpec
+	for _, p := range vm.Spec.Programs {
+		if progMatch(p, section) {
+			prog = p
+			break
+		}
+	}
+
+	if prog == nil {
+		return ErrorCode, fmt.Errorf("program not found: %s", section)
+	}
+
+	if err := vm.maps.LoadMaps(vm.Spec, section); err != nil {
+		return ErrorCode, err
+	}
+
+	return vm.RunInstructions(ctx, normalizedInsts(prog.Instructions))
 }
 
 func zeroExtend(in int32) uint64 {
