@@ -102,9 +102,9 @@ func runTest() {
 
 	vm := baloum.NewVM(spec, baloum.Opts{Fncs: fncs, Logger: suggar})
 
-	var ctx baloum.Context
+	var ctx baloum.StdContext
 
-	code, err := vm.RunProgram(ctx, "test/ex1")
+	code, err := vm.RunProgram(&ctx, "test/ex1")
 	if err != nil || code != 0 {
 		suggar.Fatalf("unexpected error: %v, %d", err, code)
 	}
