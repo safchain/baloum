@@ -17,7 +17,6 @@ limitations under the License.
 package baloum
 
 import (
-	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -267,7 +266,10 @@ func (vm *VM) atomicUint32(addr uint64, inc uint32, imm int64) (uint32, bool, er
 }
 
 func isStrSection(name string) bool {
-	return strings.HasPrefix(name, "rodatastr") || strings.HasPrefix(name, ".rodata.str")
+	return (strings.HasPrefix(name, "rodata") ||
+		strings.HasPrefix(name, ".rodata") ||
+		strings.HasPrefix(name, "rodatastr") ||
+		strings.HasPrefix(name, ".rodata.str"))
 }
 
 func secStrNameKey(name string, offset uint64) string {
@@ -290,16 +292,21 @@ func (vm *VM) initStrs() {
 	for _, m := range vm.Spec.Maps {
 		if isStrSection(m.Name) {
 			for _, content := range m.Contents {
+				var data []byte
 				var offset int
-				for _, s := range bytes.Split(content.Value.([]byte), []byte{0}) {
-					if len(s) == 0 {
-						continue
+
+				for o, c := range content.Value.([]byte) {
+					if c == 0x0 {
+						if str := string(data); len(str) != 0 {
+							key := fmt.Sprintf("%s.%d", m.Name, offset)
+							vm.strs[key] = vm.heap.AllocWith([]byte(str))
+						}
+
+						data = data[:0]
+						offset = o + 1
+					} else {
+						data = append(data, c)
 					}
-
-					key := fmt.Sprintf("%s.%d", m.Name, offset)
-					vm.strs[key] = vm.heap.AllocWith(s)
-
-					offset += len(s) + 1 // \0
 				}
 			}
 		}
