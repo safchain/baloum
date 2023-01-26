@@ -865,6 +865,10 @@ func (vm *VM) RunInstructions(ctx Context, insts []asm.Instruction) (int, error)
 	return ErrorCode, errors.New("unexpected error")
 }
 
+func (vm *VM) LoadMaps(section string) error {
+	return vm.maps.LoadMaps(vm.Spec, section)
+}
+
 func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 	var prog *ebpf.ProgramSpec
 	for _, p := range vm.Spec.Programs {
