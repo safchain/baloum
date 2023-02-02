@@ -33,7 +33,7 @@ func TestTailCall(t *testing.T) {
 
 	suggar := logger.Sugar()
 
-	reader, err := os.Open("../../tests/ebpf/bin/test_tail_call.o")
+	reader, err := os.Open("../../tests/ebpf/bin/test_prog_array.o")
 	if err != nil {
 		log.Fatal(err)
 	}
