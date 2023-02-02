@@ -18,32 +18,17 @@ package baloum
 
 import (
 	"errors"
+	"fmt"
 )
 
-type MapArrayStorage struct {
+type MapProgArrayStorage struct {
 	vm         *VM
 	maxEntries uint32
 
 	data []uint64
 }
 
-func mapArrayKeyIndex(key []byte) (int, error) {
-	var idx int
-	switch len(key) {
-	case 2:
-		idx = int(ByteOrder.Uint16(key))
-	case 4:
-		idx = int(ByteOrder.Uint32(key))
-	case 8:
-		idx = int(ByteOrder.Uint64(key))
-	default:
-		return 0, errors.New("incorrect key size")
-	}
-
-	return idx, nil
-}
-
-func (m *MapArrayStorage) Lookup(key []byte) (uint64, error) {
+func (m *MapProgArrayStorage) Lookup(key []byte) (uint64, error) {
 	idx, err := mapArrayKeyIndex(key)
 	if err != nil {
 		return 0, err
@@ -53,10 +38,12 @@ func (m *MapArrayStorage) Lookup(key []byte) (uint64, error) {
 		return 0, errors.New("out of bound")
 	}
 
+	fmt.Printf(">>>>>>>>>: %+v\n", m.data)
+
 	return m.data[idx], nil
 }
 
-func (m *MapArrayStorage) Update(key []byte, value []byte, kind MapUpdateType) (bool, error) {
+func (m *MapProgArrayStorage) Update(key []byte, value []byte, kind MapUpdateType) (bool, error) {
 	idx, err := mapArrayKeyIndex(key)
 	if err != nil {
 		return false, err
@@ -69,32 +56,34 @@ func (m *MapArrayStorage) Update(key []byte, value []byte, kind MapUpdateType) (
 	m.vm.heap.Free(m.data[idx])
 	m.data[idx] = m.vm.heap.AllocWith(value)
 
+	fmt.Printf(">>>>>>>>>: %+v\n", m.data)
+
 	return true, nil
 }
 
-func (m *MapArrayStorage) Delete(key []byte) (bool, error) {
+func (m *MapProgArrayStorage) Delete(key []byte) (bool, error) {
 	return false, errors.New("operation not supported")
 }
 
-func (m *MapArrayStorage) Keys() ([][]byte, error) {
+func (m *MapProgArrayStorage) Keys() ([][]byte, error) {
 	return nil, errors.New("operation not supported")
 }
 
-func (m *MapArrayStorage) Read() (<-chan []byte, error) {
+func (m *MapProgArrayStorage) Read() (<-chan []byte, error) {
 	return nil, errors.New("operation not supported")
 }
 
-func (m *MapArrayStorage) Write(data []byte) error {
+func (m *MapProgArrayStorage) Write(data []byte) error {
 	return errors.New("operation not supported")
 }
 
-func NewMapArrayStorage(vm *VM, keySize, valueSize, maxEntries, flags uint32) (MapStorage, error) {
+func NewMapProgArrayStorage(vm *VM, keySize, valueSize, maxEntries, flags uint32) (MapStorage, error) {
 	data := make([]uint64, maxEntries)
 	for i := range data {
 		data[i] = vm.heap.Alloc(int(valueSize))
 	}
 
-	return &MapArrayStorage{
+	return &MapProgArrayStorage{
 		vm:         vm,
 		maxEntries: maxEntries,
 		data:       data,

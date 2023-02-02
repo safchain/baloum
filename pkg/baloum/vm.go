@@ -38,15 +38,20 @@ type vmState struct {
 	stack []byte
 }
 
+type program []asm.Instruction
+
 type VM struct {
-	Spec  *ebpf.CollectionSpec
-	Opts  Opts
-	stack []byte
-	heap  *Heap
-	regs  Regs
-	fncs  map[asm.BuiltinFunc]func(*VM, *asm.Instruction) error
-	strs  map[string]uint64
-	maps  *MapCollection
+	Spec     *ebpf.CollectionSpec
+	Opts     Opts
+	stack    []byte
+	heap     *Heap
+	regs     Regs
+	fncs     map[asm.BuiltinFunc]func(*VM, *asm.Instruction) error
+	strs     map[string]uint64
+	maps     *MapCollection
+	programs []*Program
+	progType ebpf.ProgramType
+	ctx      Context
 }
 
 func NewVM(spec *ebpf.CollectionSpec, opts Opts) *VM {
@@ -324,7 +329,7 @@ func (vm *VM) initFncs() {
 	}
 }
 
-func normalizedInsts(insts []asm.Instruction) []asm.Instruction {
+func normalizeInsts(insts []asm.Instruction) []asm.Instruction {
 	var normInsts []asm.Instruction
 
 	for _, inst := range insts {
@@ -808,9 +813,15 @@ func (vm *VM) RunInstructions(ctx Context, insts []asm.Instruction) (int, error)
 			switch inst.Src {
 			case 0:
 				// helpers
-				if fnc := vm.fncs[asm.BuiltinFunc(inst.Constant)]; fnc != nil {
+				builtin := asm.BuiltinFunc(inst.Constant)
+				if fnc := vm.fncs[builtin]; fnc != nil {
 					if err := fnc(vm, &inst); err != nil {
 						return ErrorCode, err
+					}
+
+					// if tail call endup here
+					if builtin == asm.FnTailCall {
+						return int(int32(vm.regs[asm.R0])), nil
 					}
 				} else {
 					return ErrorCode, fmt.Errorf("unknown function: `%v`", inst.Src)
@@ -865,24 +876,64 @@ func (vm *VM) RunInstructions(ctx Context, insts []asm.Instruction) (int, error)
 	return ErrorCode, errors.New("unexpected error")
 }
 
-func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
-	var prog *ebpf.ProgramSpec
-	for _, p := range vm.Spec.Programs {
-		if progMatch(p, section) {
-			prog = p
+func (vm *VM) LoadMaps(section ...string) error {
+	return vm.maps.LoadMaps(vm.Spec, section...)
+}
+
+func (vm *VM) loadSection(section string) (*Program, error) {
+	var spec *ebpf.ProgramSpec
+	for _, s := range vm.Spec.Programs {
+		if progMatch(s, section) {
+			spec = s
 			break
 		}
 	}
 
-	if prog == nil {
-		return ErrorCode, fmt.Errorf("program not found: %s", section)
+	if spec == nil {
+		return nil, fmt.Errorf("program not found: %s", section)
 	}
 
 	if err := vm.maps.LoadMaps(vm.Spec, section); err != nil {
+		return nil, err
+	}
+
+	program := &Program{
+		Type:         spec.Type,
+		Instructions: normalizeInsts(spec.Instructions),
+	}
+
+	return program, nil
+}
+
+func (vm *VM) AddProgram(program *Program) uint32 {
+	// FD is the index in the map of programs
+	fd := uint32(len(vm.programs))
+	vm.programs = append(vm.programs, program)
+
+	return fd
+}
+
+func (vm *VM) LoadProgram(section string) (uint32, error) {
+	program, err := vm.loadSection(section)
+	if err != nil {
+		return 0, err
+	}
+
+	fd := vm.AddProgram(program)
+	return fd, nil
+}
+
+func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
+	program, err := vm.loadSection(section)
+	if err != nil {
 		return ErrorCode, err
 	}
 
-	return vm.RunInstructions(ctx, normalizedInsts(prog.Instructions))
+	// keep current type and context
+	vm.progType = program.Type
+	vm.ctx = ctx
+
+	return vm.RunInstructions(ctx, program.Instructions)
 }
 
 func zeroExtend(in int32) uint64 {

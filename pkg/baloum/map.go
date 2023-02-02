@@ -174,6 +174,11 @@ func (mc *MapCollection) LoadMap(spec *ebpf.CollectionSpec, name string) error {
 			if err != nil {
 				return err
 			}
+		case ebpf.ProgramArray:
+			_map.storage, err = NewMapProgArrayStorage(mc.vm, m.KeySize, m.ValueSize, m.MaxEntries, m.Flags)
+			if err != nil {
+				return err
+			}
 		default:
 			return fmt.Errorf("map type %s not supported", m.Type)
 		}
@@ -212,10 +217,15 @@ func (mc *MapCollection) LoadMaps(spec *ebpf.CollectionSpec, sections ...string)
 		}
 
 		for _, inst := range prog.Instructions {
-			if inst.Src == asm.PseudoMapFD || inst.Dst == asm.PseudoMapFD {
-				if err := mc.LoadMap(spec, inst.Reference()); err != nil {
-					return err
-				}
+			ref := inst.Reference()
+			if ref == "" {
+				continue
+			}
+			if inst.Src != asm.PseudoMapFD && inst.Dst != asm.PseudoMapFD {
+				continue
+			}
+			if err := mc.LoadMap(spec, ref); err != nil {
+				return err
 			}
 		}
 	}

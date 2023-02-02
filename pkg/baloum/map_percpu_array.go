@@ -43,18 +43,6 @@ func (m *MapPerCPUArrayStorage) getCPU() (uint32, error) {
 }
 
 func (m *MapPerCPUArrayStorage) Lookup(key []byte) (uint64, error) {
-	var idx int
-	switch len(key) {
-	case 2:
-		idx = int(ByteOrder.Uint16(key))
-	case 4:
-		idx = int(ByteOrder.Uint32(key))
-	case 8:
-		idx = int(ByteOrder.Uint64(key))
-	default:
-		return 0, errors.New("incorrect key size")
-	}
-
 	cpu, err := m.getCPU()
 	if err != nil {
 		return 0, err
@@ -62,6 +50,11 @@ func (m *MapPerCPUArrayStorage) Lookup(key []byte) (uint64, error) {
 
 	if int(cpu) > len(m.data) {
 		return 0, errors.New("out of bound")
+	}
+
+	idx, err := mapArrayKeyIndex(key)
+	if err != nil {
+		return 0, err
 	}
 
 	if idx > len(m.data[cpu]) {

@@ -63,6 +63,7 @@ var (
 		asm.FnProbeRead:         FnProbeReadImpl,
 		asm.FnProbeReadStr:      FnProbeReadStrImpl,
 		asm.FnGetSmpProcessorId: FnGetSmpProcessorIdImpl,
+		asm.FnTailCall:          FnTailCallImpl,
 	}
 )
 
@@ -370,4 +371,43 @@ func FnGetSmpProcessorIdImpl(vm *VM, inst *asm.Instruction) error {
 	}
 
 	return nil
+}
+
+func FnTailCallImpl(vm *VM, inst *asm.Instruction) error {
+	vm.regs[asm.R0] = 0
+
+	_map := vm.maps.GetMapById(int(vm.regs[asm.R2]))
+	if _map == nil {
+		return errors.New("map unknown")
+	}
+
+	keyAddr := vm.regs[asm.R3]
+	key, err := vm.getBytes(keyAddr, uint64(_map.KeySize()))
+	if err != nil {
+		return err
+	}
+
+	addr, err := _map.LookupAddr(key)
+	if err != nil {
+		return nil // lookup failed, continue without running the prog
+	}
+
+	fd, err := vm.getUint32(addr)
+	if err != nil {
+		return err
+	}
+
+	if int(fd) >= len(vm.programs) {
+		return errors.New("out of bound")
+	}
+
+	program := vm.programs[fd]
+	if program.Type != vm.progType {
+		return errors.New("program types differ")
+	}
+
+	ret, err := vm.RunInstructions(vm.ctx, program.Instructions)
+	vm.regs[asm.R0] = uint64(ret)
+
+	return err
 }
