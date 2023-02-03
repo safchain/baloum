@@ -876,6 +876,10 @@ func (vm *VM) RunInstructions(ctx Context, insts []asm.Instruction) (int, error)
 	return ErrorCode, errors.New("unexpected error")
 }
 
+func (vm *VM) LoadMap(name string) error {
+	return vm.maps.LoadMap(vm.Spec, name)
+}
+
 func (vm *VM) LoadMaps(section ...string) error {
 	return vm.maps.LoadMaps(vm.Spec, section...)
 }
