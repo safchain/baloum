@@ -64,7 +64,7 @@ Baloum make use of the [Alan-Jowett/bpf_conformance](https://github.com/Alan-Jow
 |-----------------------------------------------|-----------|
 |	BPF_MAP_TYPE_HASH                       |    ✅     |
 |	BPF_MAP_TYPE_ARRAY                      |    ✅     |
-|	BPF_MAP_TYPE_PROG_ARRAY                 |    ❌     |
+|	BPF_MAP_TYPE_PROG_ARRAY                 |    ✅     |
 |	BPF_MAP_TYPE_PERF_EVENT_ARRAY           |    ✅     |
 |	BPF_MAP_TYPE_PERCPU_HASH                |    ❌     |
 |	BPF_MAP_TYPE_PERCPU_ARRAY               |    ✅     |
