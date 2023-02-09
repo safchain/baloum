@@ -23,5 +23,26 @@ import (
 
 type Program struct {
 	Type         ebpf.ProgramType
-	Instructions []asm.Instruction
+	Instructions asm.Instructions
+}
+
+func (p *Program) ResolveReferences() {
+	symbols := make(map[string]int)
+
+	for offset, ins := range p.Instructions {
+		if symbol := ins.Symbol(); symbol != "" {
+			symbols[symbol] = offset
+		}
+	}
+
+	for i, ins := range p.Instructions {
+		if ref := ins.Reference(); ref != "" {
+
+			offset, exists := symbols[ref]
+			if exists {
+				ins.Offset = int16(offset - i)
+				p.Instructions[i] = ins
+			}
+		}
+	}
 }
