@@ -18,7 +18,6 @@ package baloum
 
 import (
 	"errors"
-	"fmt"
 )
 
 type MapProgArrayStorage struct {
@@ -53,8 +52,6 @@ func (m *MapProgArrayStorage) Update(key []byte, value []byte, kind MapUpdateTyp
 
 	m.vm.heap.Free(m.data[idx])
 	m.data[idx] = m.vm.heap.AllocWith(value)
-
-	fmt.Printf(">>>>>>>>>: %+v\n", m.data)
 
 	return true, nil
 }
