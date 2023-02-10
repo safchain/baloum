@@ -344,6 +344,8 @@ func normalizeInsts(insts []asm.Instruction) []asm.Instruction {
 }
 
 func (vm *VM) RunInstructions(ctx Context, insts []asm.Instruction) (int, error) {
+	insts = normalizeInsts(insts)
+
 	state := vm.saveState()
 	defer func() {
 		vm.loadState(state)
@@ -412,6 +414,12 @@ func (vm *VM) RunInstructions(ctx Context, insts []asm.Instruction) (int, error)
 			} else {
 				vm.regs[inst.Dst] = uint64(inst.Constant)
 			}
+		case asm.LoadImmOp(asm.Word):
+			vm.regs[inst.Dst] = uint64(inst.Constant)
+		case asm.LoadImmOp(asm.Half):
+			vm.regs[inst.Dst] = uint64(inst.Constant)
+		case asm.LoadImmOp(asm.Byte):
+			vm.regs[inst.Dst] = uint64(inst.Constant)
 
 		//
 		case asm.LSh.Op(asm.ImmSource):
@@ -903,7 +911,7 @@ func (vm *VM) loadSection(section string) (*Program, error) {
 
 	program := &Program{
 		Type:         spec.Type,
-		Instructions: normalizeInsts(spec.Instructions),
+		Instructions: spec.Instructions,
 	}
 
 	return program, nil

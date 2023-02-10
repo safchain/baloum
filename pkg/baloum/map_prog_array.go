@@ -38,8 +38,6 @@ func (m *MapProgArrayStorage) Lookup(key []byte) (uint64, error) {
 		return 0, errors.New("out of bound")
 	}
 
-	fmt.Printf(">>>>>>>>>: %+v\n", m.data)
-
 	return m.data[idx], nil
 }
 
