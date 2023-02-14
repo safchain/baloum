@@ -49,7 +49,7 @@ type VM struct {
 	fncs     map[asm.BuiltinFunc]func(*VM, *asm.Instruction) error
 	strs     map[string]uint64
 	maps     *MapCollection
-	programs []*Program
+	programs []*ebpf.ProgramSpec
 	progType ebpf.ProgramType
 	ctx      Context
 }
@@ -357,8 +357,16 @@ func (vm *VM) RunInstructions(ctx Context, insts []asm.Instruction) (int, error)
 	vm.stack = make([]byte, vm.Opts.StackSize)
 	vm.regs[asm.RFP] = uint64(len(vm.stack))
 
-	var pc int
+	var pc, prevPC int
+
+	prevPC = -1
 	for pc != len(insts) {
+		// check backward branch
+		if pc <= prevPC {
+			return ErrorCode, errors.New("backward branch")
+		}
+		prevPC = pc
+
 		inst := insts[pc]
 
 		vm.Opts.Logger.Debugf("%d > %v (%d)", pc, inst, inst.Size())
@@ -399,9 +407,13 @@ func (vm *VM) RunInstructions(ctx Context, insts []asm.Instruction) (int, error)
 		//
 		case asm.LoadImmOp(asm.DWord):
 			if inst.Src == asm.PseudoMapFD {
-				_map := vm.maps.GetMapByName(inst.Reference())
-				if _map == nil {
-					return -1, fmt.Errorf("map not found: %v", inst.Reference())
+				var _map *Map
+				if ref := inst.Reference(); ref != "" {
+					if _map = vm.maps.GetMapByName(inst.Reference()); _map == nil {
+						return -1, fmt.Errorf("map not found: %v", inst.Reference())
+					}
+				} else if _map = vm.maps.GetMapById(int(inst.Src)); _map == nil {
+					return -1, fmt.Errorf("map not found: %v", inst.Src)
 				}
 				vm.regs[inst.Dst] = uint64(_map.ID())
 			} else if isStrSection(inst.Reference()) {
@@ -892,7 +904,7 @@ func (vm *VM) LoadMaps(section ...string) error {
 	return vm.maps.LoadMaps(vm.Spec, section...)
 }
 
-func (vm *VM) loadSection(section string) (*Program, error) {
+func (vm *VM) loadSection(section string) (*ebpf.ProgramSpec, error) {
 	var spec *ebpf.ProgramSpec
 	for _, s := range vm.Spec.Programs {
 		if progMatch(s, section) {
@@ -909,7 +921,7 @@ func (vm *VM) loadSection(section string) (*Program, error) {
 		return nil, err
 	}
 
-	program := &Program{
+	program := &ebpf.ProgramSpec{
 		Type:         spec.Type,
 		Instructions: spec.Instructions,
 	}
@@ -917,7 +929,7 @@ func (vm *VM) loadSection(section string) (*Program, error) {
 	return program, nil
 }
 
-func (vm *VM) AddProgram(program *Program) uint32 {
+func (vm *VM) AddProgram(program *ebpf.ProgramSpec) uint32 {
 	// FD is the index in the map of programs
 	fd := uint32(len(vm.programs))
 	vm.programs = append(vm.programs, program)

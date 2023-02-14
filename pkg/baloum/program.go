@@ -17,32 +17,33 @@ limitations under the License.
 package baloum
 
 import (
-	"github.com/cilium/ebpf"
+	"errors"
+
 	"github.com/cilium/ebpf/asm"
 )
 
-type Program struct {
-	Type         ebpf.ProgramType
-	Instructions asm.Instructions
-}
-
-func (p *Program) ResolveReferences() {
+func ResolveReferences(insts asm.Instructions) error {
 	symbols := make(map[string]int)
 
-	for offset, ins := range p.Instructions {
+	for offset, ins := range insts {
 		if symbol := ins.Symbol(); symbol != "" {
 			symbols[symbol] = offset
 		}
 	}
 
-	for i, ins := range p.Instructions {
+	for i, ins := range insts {
 		if ref := ins.Reference(); ref != "" {
-
 			offset, exists := symbols[ref]
 			if exists {
-				ins.Offset = int16(offset - i)
-				p.Instructions[i] = ins
+				delta := offset - i - 1
+				if delta < 1 {
+					return errors.New("backward branch")
+				}
+				ins.Offset = int16(delta)
+				insts[i] = ins
 			}
 		}
 	}
+
+	return nil
 }
