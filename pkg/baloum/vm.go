@@ -368,6 +368,10 @@ func (vm *VM) RunInstructions(ctx Context, insts []asm.Instruction) (int, error)
 		prevPC = pc
 
 		inst := insts[pc]
+		if inst.Symbol() == "_dump" {
+			vm.DumpRegister()
+			vm.DumpStack()
+		}
 
 		vm.Opts.Logger.Debugf("%d > %v (%d)", pc, inst, inst.Size())
 		pc += int(inst.Size() / 8)
@@ -412,7 +416,7 @@ func (vm *VM) RunInstructions(ctx Context, insts []asm.Instruction) (int, error)
 					if _map = vm.maps.GetMapByName(inst.Reference()); _map == nil {
 						return -1, fmt.Errorf("map not found: %v", inst.Reference())
 					}
-				} else if _map = vm.maps.GetMapById(int(inst.Src)); _map == nil {
+				} else if _map = vm.maps.GetMapById(int(inst.Constant)); _map == nil {
 					return -1, fmt.Errorf("map not found: %v", inst.Src)
 				}
 				vm.regs[inst.Dst] = uint64(_map.ID())
@@ -960,10 +964,54 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 	return vm.RunInstructions(ctx, program.Instructions)
 }
 
+func (vm *VM) Verify() error {
+	colSpec := ebpf.CollectionSpec{
+		Programs: make(map[string]*ebpf.ProgramSpec),
+	}
+	for _, progSpec := range vm.programs {
+		colSpec.Programs[progSpec.Name] = progSpec
+	}
+
+	collection, err := ebpf.NewCollection(&colSpec)
+	if err != nil {
+		return err
+	}
+	collection.Close()
+
+	return nil
+}
+
 func zeroExtend(in int32) uint64 {
 	return uint64(uint32(in))
 }
 
 func JumpOpCode(class asm.Class, jumpOp asm.JumpOp, source asm.Source) asm.OpCode {
 	return asm.OpCode(class).SetJumpOp(jumpOp).SetSource(source)
+}
+
+func (vm *VM) DumpRegister() {
+	fmt.Println("Registers:")
+	for i, v := range vm.regs {
+		if i > 0 {
+			fmt.Printf(", ")
+		}
+		fmt.Printf("R%d: %v", i, v)
+	}
+	fmt.Println()
+}
+
+func (vm *VM) DumpStack() {
+	fmt.Println("Stack:")
+	var notFirst bool
+	for i, b := range vm.stack {
+		if i%16 == 0 {
+			if notFirst {
+				fmt.Println()
+			}
+			notFirst = true
+			fmt.Printf("%4d    ", i)
+		}
+		fmt.Printf("%03d ", b)
+	}
+	fmt.Println()
 }

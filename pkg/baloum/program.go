@@ -39,7 +39,14 @@ func ResolveReferences(insts asm.Instructions) error {
 				if delta < 1 {
 					return errors.New("backward branch")
 				}
-				ins.Offset = int16(delta)
+				// correct with size of instruction size
+				var inc int
+				for j := 0; j != delta; j++ {
+					if insts[i+j].Size() > 8 {
+						inc++
+					}
+				}
+				ins.Offset = int16(delta + inc)
 				insts[i] = ins
 			}
 		}
