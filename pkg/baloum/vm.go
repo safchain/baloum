@@ -357,16 +357,8 @@ func (vm *VM) RunInstructions(ctx Context, insts []asm.Instruction) (int, error)
 	vm.stack = make([]byte, vm.Opts.StackSize)
 	vm.regs[asm.RFP] = uint64(len(vm.stack))
 
-	var pc, prevPC int
-
-	prevPC = -1
+	var pc int
 	for pc != len(insts) {
-		// check backward branch
-		if pc <= prevPC {
-			return ErrorCode, errors.New("backward branch")
-		}
-		prevPC = pc
-
 		inst := insts[pc]
 		if inst.Symbol() == "_dump" {
 			vm.DumpRegister()
@@ -962,23 +954,6 @@ func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
 	vm.ctx = ctx
 
 	return vm.RunInstructions(ctx, program.Instructions)
-}
-
-func (vm *VM) Verify() error {
-	colSpec := ebpf.CollectionSpec{
-		Programs: make(map[string]*ebpf.ProgramSpec),
-	}
-	for _, progSpec := range vm.programs {
-		colSpec.Programs[progSpec.Name] = progSpec
-	}
-
-	collection, err := ebpf.NewCollection(&colSpec)
-	if err != nil {
-		return err
-	}
-	collection.Close()
-
-	return nil
 }
 
 func zeroExtend(in int32) uint64 {

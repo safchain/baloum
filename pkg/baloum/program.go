@@ -17,7 +17,7 @@ limitations under the License.
 package baloum
 
 import (
-	"errors"
+	"fmt"
 
 	"github.com/cilium/ebpf/asm"
 )
@@ -36,8 +36,8 @@ func ResolveReferences(insts asm.Instructions) error {
 			offset, exists := symbols[ref]
 			if exists {
 				delta := offset - i - 1
-				if delta < 1 {
-					return errors.New("backward branch")
+				if delta < 0 {
+					return fmt.Errorf("backward branch ins %d : %v", i, ins)
 				}
 				// correct with size of instruction size
 				var inc int
