@@ -365,6 +365,10 @@ func (vm *VM) RunInstructions(ctx Context, insts []asm.Instruction) (int, error)
 			vm.DumpStack()
 		}
 
+		if vm.Opts.Observer != nil {
+			vm.Opts.Observer.ObserveInst(pc, &inst)
+		}
+
 		vm.Opts.Logger.Debugf("%d > %v (%d)", pc, inst, inst.Size())
 		pc += int(inst.Size() / 8)
 
