@@ -19,5 +19,5 @@ package baloum
 import "github.com/cilium/ebpf/asm"
 
 type Observer interface {
-	ObserveInst(pc int, inst *asm.Instruction)
+	ObserveInst(vm *VM, pc int, inst *asm.Instruction)
 }

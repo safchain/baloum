@@ -360,13 +360,9 @@ func (vm *VM) RunInstructions(ctx Context, insts []asm.Instruction) (int, error)
 	var pc int
 	for pc != len(insts) {
 		inst := insts[pc]
-		if inst.Symbol() == "_dump" {
-			vm.DumpRegister()
-			vm.DumpStack()
-		}
 
 		if vm.Opts.Observer != nil {
-			vm.Opts.Observer.ObserveInst(pc, &inst)
+			vm.Opts.Observer.ObserveInst(vm, pc, &inst)
 		}
 
 		vm.Opts.Logger.Debugf("%d > %v (%d)", pc, inst, inst.Size())
@@ -966,31 +962,4 @@ func zeroExtend(in int32) uint64 {
 
 func JumpOpCode(class asm.Class, jumpOp asm.JumpOp, source asm.Source) asm.OpCode {
 	return asm.OpCode(class).SetJumpOp(jumpOp).SetSource(source)
-}
-
-func (vm *VM) DumpRegister() {
-	fmt.Println("Registers:")
-	for i, v := range vm.regs {
-		if i > 0 {
-			fmt.Printf(", ")
-		}
-		fmt.Printf("R%d: %v", i, v)
-	}
-	fmt.Println()
-}
-
-func (vm *VM) DumpStack() {
-	fmt.Println("Stack:")
-	var notFirst bool
-	for i, b := range vm.stack {
-		if i%16 == 0 {
-			if notFirst {
-				fmt.Println()
-			}
-			notFirst = true
-			fmt.Printf("%4d    ", i)
-		}
-		fmt.Printf("%03d ", b)
-	}
-	fmt.Println()
 }
