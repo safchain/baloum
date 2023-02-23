@@ -17,12 +17,12 @@ limitations under the License.
 package baloum
 
 import (
-	"bufio"
 	"fmt"
 	"os"
-	"strings"
+	"runtime"
 
 	"github.com/cilium/ebpf/asm"
+	"github.com/peterh/liner"
 )
 
 type DebugCommand string
@@ -36,8 +36,9 @@ const (
 )
 
 type Debugger struct {
-	Enabled      bool
-	lastDebugCmd DebugCommand
+	Enabled bool
+	lastCmd string
+	liner   *liner.State
 }
 
 func (d *Debugger) dumpRegister(vm *VM) {
@@ -66,6 +67,13 @@ func (d *Debugger) dumpStack(vm *VM) {
 }
 
 func (d *Debugger) ObserveInst(vm *VM, pc int, inst *asm.Instruction) {
+	if d.liner == nil {
+		d.liner = liner.NewLiner()
+		runtime.SetFinalizer(d, func(i interface{}) {
+			i.(*Debugger).liner.Close()
+		})
+	}
+
 	d.Enabled = d.Enabled || inst.Symbol() == "debugger"
 	if !d.Enabled {
 		return
@@ -74,22 +82,19 @@ func (d *Debugger) ObserveInst(vm *VM, pc int, inst *asm.Instruction) {
 	fmt.Fprintf(os.Stdout, "%d: %v\n", pc, inst)
 
 LOOP:
-	fmt.Fprintf(os.Stdout, "> ")
-
-	reader := bufio.NewReader(os.Stdin)
-	cmd, err := reader.ReadString('\n')
+	debugCmd, err := d.liner.Prompt("> ")
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return
+		fmt.Println()
+		d.liner.Close()
+		os.Exit(0)
 	}
-
-	debugCmd := DebugCommand(strings.TrimSuffix(cmd, "\n"))
 	if debugCmd == "" {
-		debugCmd = d.lastDebugCmd
+		debugCmd = d.lastCmd
 	}
-	d.lastDebugCmd = debugCmd
+	d.lastCmd = debugCmd
+	d.liner.AppendHistory(debugCmd)
 
-	switch debugCmd {
+	switch DebugCommand(debugCmd) {
 	case NextCommand:
 	case ContinueCommand:
 		d.Enabled = false
