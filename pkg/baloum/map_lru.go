@@ -61,7 +61,7 @@ func (m *MapLRUStorage) Keys() ([][]byte, error) {
 	var keys [][]byte
 
 	for _, key := range m.data.Keys() {
-		keys = append(keys, key.([]byte))
+		keys = append(keys, []byte(key.(string)))
 	}
 
 	return keys, nil

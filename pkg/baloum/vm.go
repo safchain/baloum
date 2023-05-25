@@ -411,7 +411,7 @@ func (vm *VM) RunInstructions(ctx Context, insts []asm.Instruction) (int, error)
 				} else if _map = vm.maps.GetMapById(int(inst.Constant)); _map == nil {
 					return -1, fmt.Errorf("map not found: %v", inst.Src)
 				}
-				vm.regs[inst.Dst] = uint64(_map.ID())
+				vm.regs[inst.Dst] = uint64(_map.id)
 			} else if isStrSection(inst.Reference()) {
 				offset := uint64(inst.Constant) >> 32
 				addr, err := vm.getStringAddr(inst.Reference(), offset)

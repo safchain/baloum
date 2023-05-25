@@ -48,7 +48,10 @@ func main() {
 		},
 	}
 
-	vm := baloum.NewVM(spec, baloum.Opts{Fncs: fncs, Observer: &baloum.Debugger{Enabled: true}})
+	debugger := baloum.NewDebugger(true, nil)
+	defer debugger.Close()
+
+	vm := baloum.NewVM(spec, baloum.Opts{Fncs: fncs, Observer: debugger})
 
 	var ctx baloum.StdContext
 
