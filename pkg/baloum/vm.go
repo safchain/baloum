@@ -431,29 +431,29 @@ func (vm *VM) RunInstructions(ctx Context, insts []asm.Instruction) (int, error)
 
 		//
 		case asm.LSh.Op(asm.ImmSource):
-			vm.regs[inst.Dst] <<= uint64(inst.Constant)
+			vm.regs[inst.Dst] <<= uint64(uint64(inst.Constant) % 64)
 		case asm.LSh.Op(asm.RegSource):
-			vm.regs[inst.Dst] <<= uint64(vm.regs[inst.Src])
+			vm.regs[inst.Dst] <<= uint64(vm.regs[inst.Src] % 64)
 		case asm.LSh.Op32(asm.ImmSource):
-			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) << uint32(inst.Constant))
+			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) << uint32(uint32(inst.Constant)%32))
 		case asm.LSh.Op32(asm.RegSource):
-			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) << uint32(vm.regs[inst.Src]))
+			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) << uint32(vm.regs[inst.Src]%32))
 		case asm.RSh.Op(asm.ImmSource):
-			vm.regs[inst.Dst] >>= uint64(inst.Constant)
+			vm.regs[inst.Dst] >>= uint64(uint64(inst.Constant) % 64)
 		case asm.RSh.Op(asm.RegSource):
-			vm.regs[inst.Dst] >>= uint64(vm.regs[inst.Src])
+			vm.regs[inst.Dst] >>= uint64(vm.regs[inst.Src] % 64)
 		case asm.RSh.Op32(asm.ImmSource):
-			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) >> uint32(inst.Constant))
+			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) >> uint32(uint32(inst.Constant)%32))
 		case asm.RSh.Op32(asm.RegSource):
-			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) >> uint32(vm.regs[inst.Src]))
+			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) >> uint32(vm.regs[inst.Src]%32))
 		case asm.ArSh.Op(asm.ImmSource):
-			vm.regs[inst.Dst] = uint64(int64(vm.regs[inst.Dst]) >> uint64(inst.Constant))
+			vm.regs[inst.Dst] = uint64(int64(vm.regs[inst.Dst]) >> uint64(uint64(inst.Constant)%64))
 		case asm.ArSh.Op(asm.RegSource):
-			vm.regs[inst.Dst] = uint64(int64(vm.regs[inst.Dst]) >> uint64(vm.regs[inst.Src]))
+			vm.regs[inst.Dst] = uint64(int64(vm.regs[inst.Dst]) >> uint64(vm.regs[inst.Src]%64))
 		case asm.ArSh.Op32(asm.ImmSource):
-			vm.regs[inst.Dst] = zeroExtend(int32(vm.regs[inst.Dst]) >> uint32(inst.Constant))
+			vm.regs[inst.Dst] = uint64(int32(vm.regs[inst.Dst]) >> uint32(uint32(inst.Constant)%32))
 		case asm.ArSh.Op32(asm.RegSource):
-			vm.regs[inst.Dst] = zeroExtend(int32(vm.regs[inst.Dst]) >> uint32(vm.regs[inst.Src]))
+			vm.regs[inst.Dst] = uint64(int32(vm.regs[inst.Dst]) >> uint32(vm.regs[inst.Src]%32))
 
 		//
 		case asm.StoreMemOp(asm.DWord):
