@@ -41,6 +41,7 @@ type Opts struct {
 	RawFncs   map[asm.BuiltinFunc]func(*VM, *asm.Instruction) error
 	Logger    Logger
 	CPUs      int
+	Observer  Observer
 }
 
 func defaultKtimeGetNS(vm *VM) (uint64, error) {

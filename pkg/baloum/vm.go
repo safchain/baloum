@@ -49,7 +49,7 @@ type VM struct {
 	fncs     map[asm.BuiltinFunc]func(*VM, *asm.Instruction) error
 	strs     map[string]uint64
 	maps     *MapCollection
-	programs []*Program
+	programs []*ebpf.ProgramSpec
 	progType ebpf.ProgramType
 	ctx      Context
 }
@@ -361,6 +361,10 @@ func (vm *VM) RunInstructions(ctx Context, insts []asm.Instruction) (int, error)
 	for pc != len(insts) {
 		inst := insts[pc]
 
+		if vm.Opts.Observer != nil {
+			vm.Opts.Observer.ObserveInst(vm, pc, &inst)
+		}
+
 		vm.Opts.Logger.Debugf("%d > %v (%d)", pc, inst, inst.Size())
 		pc += int(inst.Size() / 8)
 
@@ -399,11 +403,15 @@ func (vm *VM) RunInstructions(ctx Context, insts []asm.Instruction) (int, error)
 		//
 		case asm.LoadImmOp(asm.DWord):
 			if inst.Src == asm.PseudoMapFD {
-				_map := vm.maps.GetMapByName(inst.Reference())
-				if _map == nil {
-					return -1, fmt.Errorf("map not found: %v", inst.Reference())
+				var _map *Map
+				if ref := inst.Reference(); ref != "" {
+					if _map = vm.maps.GetMapByName(inst.Reference()); _map == nil {
+						return -1, fmt.Errorf("map not found: %v", inst.Reference())
+					}
+				} else if _map = vm.maps.GetMapById(int(inst.Constant)); _map == nil {
+					return -1, fmt.Errorf("map not found: %v", inst.Src)
 				}
-				vm.regs[inst.Dst] = uint64(_map.ID())
+				vm.regs[inst.Dst] = uint64(_map.id)
 			} else if isStrSection(inst.Reference()) {
 				offset := uint64(inst.Constant) >> 32
 				addr, err := vm.getStringAddr(inst.Reference(), offset)
@@ -423,29 +431,29 @@ func (vm *VM) RunInstructions(ctx Context, insts []asm.Instruction) (int, error)
 
 		//
 		case asm.LSh.Op(asm.ImmSource):
-			vm.regs[inst.Dst] <<= uint64(inst.Constant)
+			vm.regs[inst.Dst] <<= uint64(uint64(inst.Constant) % 64)
 		case asm.LSh.Op(asm.RegSource):
-			vm.regs[inst.Dst] <<= uint64(vm.regs[inst.Src])
+			vm.regs[inst.Dst] <<= uint64(vm.regs[inst.Src] % 64)
 		case asm.LSh.Op32(asm.ImmSource):
-			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) << uint32(inst.Constant))
+			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) << uint32(uint32(inst.Constant)%32))
 		case asm.LSh.Op32(asm.RegSource):
-			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) << uint32(vm.regs[inst.Src]))
+			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) << uint32(vm.regs[inst.Src]%32))
 		case asm.RSh.Op(asm.ImmSource):
-			vm.regs[inst.Dst] >>= uint64(inst.Constant)
+			vm.regs[inst.Dst] >>= uint64(uint64(inst.Constant) % 64)
 		case asm.RSh.Op(asm.RegSource):
-			vm.regs[inst.Dst] >>= uint64(vm.regs[inst.Src])
+			vm.regs[inst.Dst] >>= uint64(vm.regs[inst.Src] % 64)
 		case asm.RSh.Op32(asm.ImmSource):
-			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) >> uint32(inst.Constant))
+			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) >> uint32(uint32(inst.Constant)%32))
 		case asm.RSh.Op32(asm.RegSource):
-			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) >> uint32(vm.regs[inst.Src]))
+			vm.regs[inst.Dst] = uint64(uint32(vm.regs[inst.Dst]) >> uint32(vm.regs[inst.Src]%32))
 		case asm.ArSh.Op(asm.ImmSource):
-			vm.regs[inst.Dst] = uint64(int64(vm.regs[inst.Dst]) >> uint64(inst.Constant))
+			vm.regs[inst.Dst] = uint64(int64(vm.regs[inst.Dst]) >> uint64(uint64(inst.Constant)%64))
 		case asm.ArSh.Op(asm.RegSource):
-			vm.regs[inst.Dst] = uint64(int64(vm.regs[inst.Dst]) >> uint64(vm.regs[inst.Src]))
+			vm.regs[inst.Dst] = uint64(int64(vm.regs[inst.Dst]) >> uint64(vm.regs[inst.Src]%64))
 		case asm.ArSh.Op32(asm.ImmSource):
-			vm.regs[inst.Dst] = zeroExtend(int32(vm.regs[inst.Dst]) >> uint32(inst.Constant))
+			vm.regs[inst.Dst] = uint64(int32(vm.regs[inst.Dst]) >> uint32(uint32(inst.Constant)%32))
 		case asm.ArSh.Op32(asm.RegSource):
-			vm.regs[inst.Dst] = zeroExtend(int32(vm.regs[inst.Dst]) >> uint32(vm.regs[inst.Src]))
+			vm.regs[inst.Dst] = uint64(int32(vm.regs[inst.Dst]) >> uint32(vm.regs[inst.Src]%32))
 
 		//
 		case asm.StoreMemOp(asm.DWord):
@@ -892,7 +900,7 @@ func (vm *VM) LoadMaps(section ...string) error {
 	return vm.maps.LoadMaps(vm.Spec, section...)
 }
 
-func (vm *VM) loadSection(section string) (*Program, error) {
+func (vm *VM) loadSection(section string) (*ebpf.ProgramSpec, error) {
 	var spec *ebpf.ProgramSpec
 	for _, s := range vm.Spec.Programs {
 		if progMatch(s, section) {
@@ -909,7 +917,7 @@ func (vm *VM) loadSection(section string) (*Program, error) {
 		return nil, err
 	}
 
-	program := &Program{
+	program := &ebpf.ProgramSpec{
 		Type:         spec.Type,
 		Instructions: spec.Instructions,
 	}
@@ -917,7 +925,7 @@ func (vm *VM) loadSection(section string) (*Program, error) {
 	return program, nil
 }
 
-func (vm *VM) AddProgram(program *Program) uint32 {
+func (vm *VM) AddProgram(program *ebpf.ProgramSpec) uint32 {
 	// FD is the index in the map of programs
 	fd := uint32(len(vm.programs))
 	vm.programs = append(vm.programs, program)

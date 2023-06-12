@@ -381,20 +381,30 @@ func FnTailCallImpl(vm *VM, inst *asm.Instruction) error {
 		return errors.New("map unknown")
 	}
 
-	keyAddr := vm.regs[asm.R3]
-	key, err := vm.getBytes(keyAddr, uint64(_map.KeySize()))
-	if err != nil {
-		return err
+	var bytes []byte
+	var err error
+
+	switch _map.keySize {
+	case 4:
+		bytes, err = _map.Lookup(uint32(vm.regs[asm.R3]))
+	case 8:
+		bytes, err = _map.Lookup(uint64(vm.regs[asm.R3]))
+	default:
+		return errors.New("key size not supported")
 	}
 
-	addr, err := _map.LookupAddr(key)
 	if err != nil {
 		return nil // lookup failed, continue without running the prog
 	}
 
-	fd, err := vm.getUint32(addr)
-	if err != nil {
-		return err
+	var fd int
+	switch _map.valueSize {
+	case 4:
+		fd = int(ByteOrder.Uint32(bytes))
+	case 8:
+		fd = int(ByteOrder.Uint64(bytes))
+	default:
+		return errors.New("value size not supported")
 	}
 
 	if int(fd) >= len(vm.programs) {

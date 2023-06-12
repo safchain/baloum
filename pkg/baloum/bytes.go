@@ -55,6 +55,11 @@ func ToBytes(data interface{}, size int) ([]byte, error) {
 			return nil, errors.New("data size error : size mismatch")
 		}
 		copy(b, t)
+	case string:
+		if len(t) > size {
+			return nil, errors.New("data size error : size mismatch")
+		}
+		copy(b, t)
 	default:
 		return nil, errors.New("data size error : unknown type")
 	}

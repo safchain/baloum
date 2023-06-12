@@ -22,7 +22,7 @@ func main() {
 		panic(err)
 	}
 
-	programByteCode, err := decode_hexa(string(program))
+	programByteCode, err := decodeHexa(string(program))
 	if err != nil {
 		panic(err)
 	}
@@ -30,7 +30,7 @@ func main() {
 	var memoryBytes []byte
 	if len(os.Args) > 1 {
 		memory := os.Args[1]
-		mb, err := decode_hexa(memory)
+		mb, err := decodeHexa(memory)
 		if err != nil {
 			panic(err)
 		}
@@ -62,10 +62,14 @@ func main() {
 		panic(err)
 	}
 
+	if code == baloum.ErrorCode {
+		fmt.Fprintf(os.Stderr, ">>>: %x\n", code)
+	}
+
 	fmt.Printf("%x\n", uint64(code))
 }
 
-func decode_hexa(in string) ([]byte, error) {
+func decodeHexa(in string) ([]byte, error) {
 	res := make([]byte, 0)
 
 	for _, word := range strings.Split(in, " ") {

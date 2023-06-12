@@ -120,8 +120,39 @@ func (m *Map) ValueSize() uint32 {
 	return m.valueSize
 }
 
-func (m *Map) ID() int {
+func (m *Map) FD() int {
 	return m.id
+}
+
+func (m *Map) Iterator() (*MapIterator, error) {
+	keys, err := m.Keys()
+	if err != nil {
+		return nil, err
+	}
+	return &MapIterator{
+		_map: m,
+		keys: keys,
+	}, nil
+}
+
+type MapIterator struct {
+	_map *Map
+	keys [][]byte
+	idx  int
+}
+
+func (mi *MapIterator) Next() ([]byte, []byte, bool) {
+	if mi.idx >= len(mi.keys) {
+		return nil, nil, false
+	}
+	key := mi.keys[mi.idx]
+
+	value, err := mi._map.Lookup(key)
+	if err != nil {
+		return nil, nil, false
+	}
+	mi.idx++
+	return key, value, true
 }
 
 type MapCollection struct {

@@ -16,7 +16,9 @@ limitations under the License.
 
 package baloum
 
-import "errors"
+import (
+	"errors"
+)
 
 type MapPerCPUArrayStorage struct {
 	vm         *VM
@@ -65,8 +67,12 @@ func (m *MapPerCPUArrayStorage) Lookup(key []byte) (uint64, error) {
 }
 
 func (m *MapPerCPUArrayStorage) Update(key []byte, value []byte, kind MapUpdateType) (bool, error) {
-	idx := ByteOrder.Uint64(key)
-	if int(idx) > len(m.data) {
+	idx, err := mapArrayKeyIndex(key)
+	if err != nil {
+		return false, err
+	}
+
+	if idx > len(m.data) {
 		return false, errors.New("out of bound")
 	}
 
