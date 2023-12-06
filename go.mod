@@ -16,6 +16,7 @@ require (
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	go.uber.org/atomic v1.10.0 // indirect
 	go.uber.org/multierr v1.8.0 // indirect
+	golang.org/x/exp v0.0.0-20231127185646-65229373498e // indirect
 	golang.org/x/sys v0.0.0-20220928140112-f11e5e49a4ec // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

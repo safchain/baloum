@@ -19,6 +19,7 @@ package baloum
 import (
 	"testing"
 
+	"github.com/cilium/ebpf/asm"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -95,5 +96,37 @@ func TestStackAlloc(t *testing.T) {
 
 		_, err = prog.StackAlloc(65)
 		assert.NotNil(t, err)
+	})
+}
+
+func TestDagVerifier(t *testing.T) {
+	t.Run("ko", func(t *testing.T) {
+		var prog Program
+
+		prog.Append(
+			asm.Ja.Label("jump1"),
+			asm.Mov.Imm(asm.R1, 1).WithSymbol("jump2"),
+			asm.Mov.Imm(asm.R1, 1).WithSymbol("jump1"),
+			asm.Ja.Label("jump2"),
+		)
+
+		err := prog.Prepare(4096)
+		assert.Error(t, err)
+	})
+
+	t.Run("ok", func(t *testing.T) {
+		var prog Program
+
+		prog.Append(
+			asm.Ja.Label("jump1"),
+			asm.Mov.Imm(asm.R1, 1).WithSymbol("jump2"),
+			asm.Ja.Label("jump3"),
+			asm.Mov.Imm(asm.R1, 1).WithSymbol("jump1"),
+			asm.Ja.Label("jump2"),
+			asm.Mov.Imm(asm.R1, 1).WithSymbol("jump3"),
+		)
+
+		err := prog.Prepare(4096)
+		assert.NoError(t, err)
 	})
 }

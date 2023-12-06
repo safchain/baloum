@@ -21,41 +21,10 @@ import (
 	"fmt"
 	"math"
 
+	"golang.org/x/exp/slices"
+
 	"github.com/cilium/ebpf/asm"
 )
-
-func ResolveReferences(insts asm.Instructions) error {
-	symbols := make(map[string]int)
-
-	for offset, ins := range insts {
-		if symbol := ins.Symbol(); symbol != "" {
-			symbols[symbol] = offset
-		}
-	}
-
-	for i, ins := range insts {
-		if ref := ins.Reference(); ref != "" {
-			offset, exists := symbols[ref]
-			if exists {
-				delta := offset - i - 1
-				if delta < 0 {
-					return fmt.Errorf("backward branch ins %d : %v", i, ins)
-				}
-				// correct with size of instruction size
-				var inc int
-				for j := 0; j != delta; j++ {
-					if insts[i+j].Size() > 8 {
-						inc++
-					}
-				}
-				ins.Offset = int16(delta + inc)
-				insts[i] = ins
-			}
-		}
-	}
-
-	return nil
-}
 
 type stackMemBlock struct {
 	addr  int16
@@ -67,6 +36,81 @@ type Program struct {
 	insts     asm.Instructions
 	blocks    []stackMemBlock
 	allocated int16
+}
+
+func (p *Program) Prepare(instLimit int) error {
+	if err := p.ResolveReferences(); err != nil {
+		return err
+	}
+
+	if err := p.VerifyDag(); err != nil {
+		return err
+	}
+
+	if len(p.insts) > instLimit {
+		return errors.New("instruction limit reached")
+	}
+
+	return nil
+}
+
+func (p *Program) VerifyDag() error {
+	var offsets []int
+
+	for i := 0; i != len(p.insts); i++ {
+		inst := p.insts[i]
+
+		if slices.Contains(offsets, i) {
+			return fmt.Errorf("not a dag, inst #%d: %v", i, inst)
+		}
+		offsets = append(offsets, i)
+
+		if inst.OpCode == asm.Ja.Op(asm.ImmSource) {
+			i += int(inst.Offset)
+		}
+	}
+
+	return nil
+}
+
+func (p *Program) ResolveReferences() error {
+	symbols := make(map[string]int)
+
+	for offset, ins := range p.insts {
+		if symbol := ins.Symbol(); symbol != "" {
+			symbols[symbol] = offset
+		}
+	}
+
+	for i, ins := range p.insts {
+		if ref := ins.Reference(); ref != "" {
+			offset, exists := symbols[ref]
+			if exists {
+				var inc int
+
+				// correct with size of instruction size
+				delta := offset - i - 1
+				if delta > 0 {
+					for j := 0; j != delta; j++ {
+						if p.insts[i+j].Size() > 8 {
+							inc++
+						}
+					}
+				} else {
+					for j := 0; j != delta; j-- {
+						if p.insts[i+j].Size() > 8 {
+							inc--
+						}
+					}
+				}
+
+				ins.Offset = int16(delta + inc)
+				p.insts[i] = ins
+			}
+		}
+	}
+
+	return nil
 }
 
 func (p *Program) StackAlloc(size int16) (int16, error) {
