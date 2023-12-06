@@ -17,16 +17,23 @@ limitations under the License.
 package baloum
 
 import (
+	"encoding/binary"
 	"errors"
+	"fmt"
+	"math"
+	"runtime/debug"
 )
 
+// MapProgArrayStorage is the type for the map prog array storage
 type MapProgArrayStorage struct {
 	vm         *VM
 	maxEntries uint32
+	valueSize  uint32
 
 	data []uint64
 }
 
+// Lookup looks up a key in the map
 func (m *MapProgArrayStorage) Lookup(key []byte) (uint64, error) {
 	idx, err := mapArrayKeyIndex(key)
 	if err != nil {
@@ -40,6 +47,7 @@ func (m *MapProgArrayStorage) Lookup(key []byte) (uint64, error) {
 	return m.data[idx], nil
 }
 
+// Update updates a key in the map
 func (m *MapProgArrayStorage) Update(key []byte, value []byte, kind MapUpdateType) (bool, error) {
 	idx, err := mapArrayKeyIndex(key)
 	if err != nil {
@@ -50,37 +58,57 @@ func (m *MapProgArrayStorage) Update(key []byte, value []byte, kind MapUpdateTyp
 		return false, errors.New("out of bound")
 	}
 
-	m.vm.heap.Free(m.data[idx])
-	m.data[idx] = m.vm.heap.AllocWith(value)
+	m.vm.SetBytes(m.data[idx], value, uint64(m.valueSize))
 
 	return true, nil
 }
 
+// Delete deletes a key in the map
 func (m *MapProgArrayStorage) Delete(key []byte) (bool, error) {
 	return false, errors.New("operation not supported")
 }
 
+// Keys returns the keys of the map
 func (m *MapProgArrayStorage) Keys() ([][]byte, error) {
 	return nil, errors.New("operation not supported")
 }
 
+// Read reads the map
 func (m *MapProgArrayStorage) Read() (<-chan []byte, error) {
 	return nil, errors.New("operation not supported")
 }
 
+// Write writes to the map
 func (m *MapProgArrayStorage) Write(data []byte) error {
 	return errors.New("operation not supported")
 }
 
+// NewMapProgArrayStorage creates a new map prog array storage
 func NewMapProgArrayStorage(vm *VM, keySize, valueSize, maxEntries, flags uint32) (MapStorage, error) {
 	data := make([]uint64, maxEntries)
+
+	var value []byte
+
+	switch valueSize {
+	case 4:
+		value = make([]byte, 4)
+		binary.NativeEndian.PutUint32(value, math.MaxUint32)
+	case 8:
+		value = make([]byte, 8)
+		binary.NativeEndian.PutUint64(value, math.MaxUint64)
+	default:
+		debug.PrintStack()
+		return nil, fmt.Errorf("value size not supported: %d", valueSize)
+	}
+
 	for i := range data {
-		data[i] = vm.heap.Alloc(int(valueSize))
+		data[i] = vm.heap.AllocWith(value)
 	}
 
 	return &MapProgArrayStorage{
 		vm:         vm,
 		maxEntries: maxEntries,
+		valueSize:  valueSize,
 		data:       data,
 	}, nil
 }

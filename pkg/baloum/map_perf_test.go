@@ -17,6 +17,7 @@ limitations under the License.
 package baloum
 
 import (
+	"encoding/binary"
 	"os"
 	"testing"
 
@@ -53,9 +54,9 @@ func TestMapPerf(t *testing.T) {
 
 	data := <-events
 
-	key := ByteOrder.Uint64(data[0:8])
+	key := binary.NativeEndian.Uint64(data[0:8])
 	assert.Equal(t, uint64(123), key)
 
-	value := ByteOrder.Uint64(data[8:16])
+	value := binary.NativeEndian.Uint64(data[8:16])
 	assert.Equal(t, uint64(456), value)
 }

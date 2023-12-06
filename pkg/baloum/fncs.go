@@ -18,6 +18,7 @@ package baloum
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"regexp"
 	"strings"
@@ -71,6 +72,7 @@ var (
 	}
 )
 
+// FnSleepImpl sleeps for a given duration
 func FnSleepImpl(vm *VM, inst *asm.Instruction) error {
 	if vm.Opts.Fncs.Sleep != nil {
 		vm.Opts.Fncs.Sleep(vm, time.Duration(vm.regs[asm.R1]))
@@ -78,11 +80,13 @@ func FnSleepImpl(vm *VM, inst *asm.Instruction) error {
 	return nil
 }
 
+// FnMallocImpl allocates memory on the heap
 func FnMallocImpl(vm *VM, inst *asm.Instruction) error {
 	vm.regs[asm.R0] = vm.heap.AllocWith(make([]byte, vm.regs[asm.R1]))
 	return nil
 }
 
+// FnCallImpl calls a function
 func FnCallImpl(vm *VM, inst *asm.Instruction) error {
 	data, err := vm.GetBytes(vm.regs[asm.R1], 0)
 	if err != nil {
@@ -109,6 +113,7 @@ func FnCallImpl(vm *VM, inst *asm.Instruction) error {
 	return nil
 }
 
+// FnStrCmpImpl compares two strings
 func FnStrCmpImpl(vm *VM, inst *asm.Instruction) error {
 	code := ErrorCode
 	vm.regs[asm.R0] = uint64(code)
@@ -129,6 +134,7 @@ func FnStrCmpImpl(vm *VM, inst *asm.Instruction) error {
 	return nil
 }
 
+// FnMemCmpImpl compares two memory blocks
 func FnMemCmpImpl(vm *VM, inst *asm.Instruction) error {
 	code := ErrorCode
 	vm.regs[asm.R0] = uint64(code)
@@ -151,6 +157,7 @@ func FnMemCmpImpl(vm *VM, inst *asm.Instruction) error {
 	return nil
 }
 
+// FnMemCpyImpl copies a memory block
 func FnMemCpyImpl(vm *VM, inst *asm.Instruction) error {
 	code := ErrorCode
 	vm.regs[asm.R0] = uint64(code)
@@ -169,6 +176,7 @@ var (
 	reFmt = regexp.MustCompile("(%[^%])")
 )
 
+// FnTracePrintkImpl prints a formatted string
 func FnTracePrintkImpl(vm *VM, inst *asm.Instruction) error {
 	format, err := vm.GetString(vm.regs[asm.R1])
 	if err != nil {
@@ -218,6 +226,7 @@ func FnTracePrintkImpl(vm *VM, inst *asm.Instruction) error {
 	return nil
 }
 
+// FnProbeReadImpl reads a memory block
 func FnProbeReadImpl(vm *VM, inst *asm.Instruction) error {
 	size := vm.regs[asm.R2]
 
@@ -236,6 +245,7 @@ func FnProbeReadImpl(vm *VM, inst *asm.Instruction) error {
 	return nil
 }
 
+// FnProbeReadStrImpl reads a string
 func FnProbeReadStrImpl(vm *VM, inst *asm.Instruction) error {
 	size := vm.regs[asm.R2]
 
@@ -259,6 +269,7 @@ func FnProbeReadStrImpl(vm *VM, inst *asm.Instruction) error {
 	return nil
 }
 
+// FnGetCurrentPidTgidImpl gets the current pid and tgid
 func FnGetCurrentPidTgidImpl(vm *VM, inst *asm.Instruction) error {
 	vm.regs[asm.R0] = 0
 	if vm.Opts.Fncs.GetCurrentPidTgid != nil {
@@ -271,6 +282,7 @@ func FnGetCurrentPidTgidImpl(vm *VM, inst *asm.Instruction) error {
 	return nil
 }
 
+// FnKtimeGetNsImpl gets the current time in nanoseconds
 func FnKtimeGetNsImpl(vm *VM, inst *asm.Instruction) error {
 	vm.regs[asm.R0] = 0
 	if vm.Opts.Fncs.KtimeGetNS != nil {
@@ -283,10 +295,11 @@ func FnKtimeGetNsImpl(vm *VM, inst *asm.Instruction) error {
 	return nil
 }
 
+// FnMapLookupElemImpl looks up a key in a map
 func FnMapLookupElemImpl(vm *VM, inst *asm.Instruction) error {
 	vm.regs[asm.R0] = 0
 
-	_map := vm.maps.GetMapById(int(vm.regs[asm.R1]))
+	_map := vm.maps.GetMapByFd(int(vm.regs[asm.R1]))
 	if _map == nil {
 		return errors.New("map unknown")
 	}
@@ -304,10 +317,11 @@ func FnMapLookupElemImpl(vm *VM, inst *asm.Instruction) error {
 	return nil
 }
 
+// FnMapUpdateElemImpl updates a key in a map
 func FnMapUpdateElemImpl(vm *VM, inst *asm.Instruction) error {
 	vm.regs[asm.R0] = 0
 
-	_map := vm.maps.GetMapById(int(vm.regs[asm.R1]))
+	_map := vm.maps.GetMapByFd(int(vm.regs[asm.R1]))
 	if _map == nil {
 		return errors.New("map unknown")
 	}
@@ -333,10 +347,11 @@ func FnMapUpdateElemImpl(vm *VM, inst *asm.Instruction) error {
 	return err
 }
 
+// FnMapDeleteElemImpl deletes a key in a map
 func FnMapDeleteElemImpl(vm *VM, inst *asm.Instruction) error {
 	vm.regs[asm.R0] = 0
 
-	_map := vm.maps.GetMapById(int(vm.regs[asm.R1]))
+	_map := vm.maps.GetMapByFd(int(vm.regs[asm.R1]))
 	if _map == nil {
 		return errors.New("map unknown")
 	}
@@ -348,18 +363,19 @@ func FnMapDeleteElemImpl(vm *VM, inst *asm.Instruction) error {
 	}
 
 	deleted, err := _map.Delete(key)
-	if !deleted {
+	if !deleted || err != nil {
 		code := int64(ErrorCode)
 		vm.regs[asm.R0] = uint64(code)
 	}
 
-	return err
+	return nil
 }
 
+// FnPerfEventOutputImpl writes data to a map
 func FnPerfEventOutputImpl(vm *VM, inst *asm.Instruction) error {
 	vm.regs[asm.R0] = 0
 
-	_map := vm.maps.GetMapById(int(vm.regs[asm.R2]))
+	_map := vm.maps.GetMapByFd(int(vm.regs[asm.R2]))
 	if _map == nil {
 		return errors.New("map unknown")
 	}
@@ -377,6 +393,7 @@ func FnPerfEventOutputImpl(vm *VM, inst *asm.Instruction) error {
 	return _map.Write(data, size)
 }
 
+// FnGetSmpProcessorIdImpl gets the current CPU id
 func FnGetSmpProcessorIdImpl(vm *VM, inst *asm.Instruction) error {
 	vm.regs[asm.R0] = 0
 
@@ -391,13 +408,14 @@ func FnGetSmpProcessorIdImpl(vm *VM, inst *asm.Instruction) error {
 	return nil
 }
 
+// FnTailCallImpl performs a tail call
 func FnTailCallImpl(vm *VM, inst *asm.Instruction) error {
 	if vm.tailCails >= 32 {
 		return errors.New("maximum tail calls reach")
 	}
 	vm.tailCails++
 
-	_map := vm.maps.GetMapById(int(vm.regs[asm.R2]))
+	_map := vm.maps.GetMapByFd(int(vm.regs[asm.R2]))
 	if _map == nil {
 		return errors.New("map unknown")
 	}
@@ -407,9 +425,7 @@ func FnTailCallImpl(vm *VM, inst *asm.Instruction) error {
 
 	switch _map.keySize {
 	case 4:
-		bytes, err = _map.Lookup(uint32(vm.regs[asm.R3]))
-	case 8:
-		bytes, err = _map.Lookup(uint64(vm.regs[asm.R3]))
+		bytes, err = _map.LookupBytes(uint32(vm.regs[asm.R3]))
 	default:
 		return errors.New("key size not supported")
 	}
@@ -421,26 +437,22 @@ func FnTailCallImpl(vm *VM, inst *asm.Instruction) error {
 	var fd int
 	switch _map.valueSize {
 	case 4:
-		fd = int(ByteOrder.Uint32(bytes))
-	case 8:
-		fd = int(ByteOrder.Uint64(bytes))
+		fd = int(binary.NativeEndian.Uint32(bytes))
 	default:
 		return errors.New("value size not supported")
 	}
 
-	if fd == 0 {
-		return errors.New("program not found")
+	if int(fd) >= len(vm.programs) {
+		code := int64(-1)
+		vm.regs[asm.R0] = uint64(code)
+		return nil
 	}
 
-	progIndex := fd - 1
-
-	if progIndex > len(vm.programs) {
-		return errors.New("out of bound")
-	}
-
-	program := vm.programs[progIndex]
+	program := vm.programs[fd]
 	if program.Type != vm.progType {
-		return errors.New("program types differ")
+		code := int64(-1)
+		vm.regs[asm.R0] = uint64(code)
+		return nil
 	}
 
 	vm.regs[asm.R0] = 0

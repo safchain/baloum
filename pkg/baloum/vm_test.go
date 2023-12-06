@@ -17,6 +17,7 @@ limitations under the License.
 package baloum
 
 import (
+	"encoding/binary"
 	"fmt"
 	"log"
 	"os"
@@ -59,16 +60,16 @@ func TestCall(t *testing.T) {
 		assert.Zero(t, code)
 		assert.Nil(t, err)
 
-		data, err := vm.Map("cache").Lookup(tgid)
+		data, err := vm.Map("cache").LookupBytes(tgid)
 		assert.Nil(t, err)
 		assert.NotNil(t, data)
-		assert.Equal(t, uint64(12345), ByteOrder.Uint64(data))
+		assert.Equal(t, uint64(12345), binary.NativeEndian.Uint64(data))
 
 		code, err = vm.RunProgram(&ctx, "kretprobe/vfs_open")
 		assert.Zero(t, code)
 		assert.Nil(t, err)
 
-		data, err = vm.Map("cache").Lookup(tgid)
+		data, err = vm.Map("cache").LookupBytes(tgid)
 		assert.Nil(t, err)
 		assert.Nil(t, data)
 	})
@@ -89,7 +90,7 @@ func TestCall(t *testing.T) {
 		assert.Zero(t, code)
 		assert.Nil(t, err)
 
-		data, err := vm.Map("cache").Lookup(tgid)
+		data, err := vm.Map("cache").LookupBytes(tgid)
 		assert.Nil(t, err)
 		assert.Nil(t, data)
 	})
@@ -112,7 +113,7 @@ func TestCall(t *testing.T) {
 		assert.Zero(t, code)
 		assert.Nil(t, err)
 
-		data, err := vm.Map("cache").Lookup(tgid)
+		data, err := vm.Map("cache").LookupBytes(tgid)
 		assert.Nil(t, err)
 		assert.Nil(t, data)
 	})
@@ -207,7 +208,7 @@ func TestSyncAdd(t *testing.T) {
 	assert.Zero(t, code)
 	assert.Nil(t, err)
 
-	data, err := vm.Map("cache").Lookup(uint64(4))
+	data, err := vm.Map("cache").LookupBytes(uint64(4))
 	assert.Nil(t, err)
-	assert.Equal(t, uint64(14), ByteOrder.Uint64(data))
+	assert.Equal(t, uint64(14), binary.NativeEndian.Uint64(data))
 }

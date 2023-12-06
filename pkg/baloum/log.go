@@ -16,6 +16,7 @@ limitations under the License.
 
 package baloum
 
+// Logger is the type for the logger
 type Logger interface {
 	Info(params ...interface{})
 	Infof(format string, params ...interface{})
@@ -27,13 +28,17 @@ type Logger interface {
 	Errorf(format string, params ...interface{})
 }
 
+// NullLogger is the type for the null logger
 type NullLogger struct{}
 
+// Debug logs a debug message
 func (l NullLogger) Debug(params ...interface{})                 {}
 func (l NullLogger) Debugf(format string, params ...interface{}) {}
 
+// Error logs an error message
 func (l NullLogger) Error(params ...interface{})                 {}
 func (l NullLogger) Errorf(format string, params ...interface{}) {}
 
+// Info logs an info message
 func (l NullLogger) Info(params ...interface{})                 {}
 func (l NullLogger) Infof(format string, params ...interface{}) {}

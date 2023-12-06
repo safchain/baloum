@@ -20,9 +20,11 @@ import (
 	"errors"
 )
 
+// MapPerCPUArrayStorage is the type for the map per cpu array storage
 type MapPerCPUArrayStorage struct {
 	vm         *VM
 	maxEntries uint32
+	valueSize  uint32
 
 	data map[uint32][]uint64
 }
@@ -44,6 +46,7 @@ func (m *MapPerCPUArrayStorage) getCPU() (uint32, error) {
 	return cpu, nil
 }
 
+// Lookup looks up a key in the map
 func (m *MapPerCPUArrayStorage) Lookup(key []byte) (uint64, error) {
 	cpu, err := m.getCPU()
 	if err != nil {
@@ -66,6 +69,7 @@ func (m *MapPerCPUArrayStorage) Lookup(key []byte) (uint64, error) {
 	return m.data[cpu][idx], nil
 }
 
+// Update updates a key in the map
 func (m *MapPerCPUArrayStorage) Update(key []byte, value []byte, kind MapUpdateType) (bool, error) {
 	idx, err := mapArrayKeyIndex(key)
 	if err != nil {
@@ -81,24 +85,27 @@ func (m *MapPerCPUArrayStorage) Update(key []byte, value []byte, kind MapUpdateT
 		return false, err
 	}
 
-	m.vm.heap.Free(m.data[cpu][idx])
-	m.data[cpu][idx] = m.vm.heap.AllocWith(value)
+	m.vm.SetBytes(m.data[cpu][idx], value, uint64(m.valueSize))
 
 	return true, nil
 }
 
+// Delete deletes a key in the map
 func (m *MapPerCPUArrayStorage) Delete(key []byte) (bool, error) {
 	return false, errors.New("operation not supported")
 }
 
+// Keys returns the keys of the map
 func (m *MapPerCPUArrayStorage) Keys() ([][]byte, error) {
 	return nil, errors.New("operation not supported")
 }
 
+// Read reads the map
 func (m *MapPerCPUArrayStorage) Read() (<-chan []byte, error) {
 	return nil, errors.New("operation not supported")
 }
 
+// Write writes to the map
 func (m *MapPerCPUArrayStorage) Write(data []byte) error {
 	return errors.New("operation not supported")
 }
@@ -117,6 +124,7 @@ func NewMapPerCPUArrayStorage(vm *VM, keySize, valueSize, maxEntries, flags uint
 	return &MapPerCPUArrayStorage{
 		vm:         vm,
 		maxEntries: maxEntries,
+		valueSize:  valueSize,
 		data:       data,
 	}, nil
 }

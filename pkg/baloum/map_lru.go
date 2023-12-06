@@ -22,12 +22,14 @@ import (
 	lru "github.com/hashicorp/golang-lru"
 )
 
+// MapLRUStorage is the type for the map lru storage
 type MapLRUStorage struct {
 	vm         *VM
 	maxEntries uint32
 	data       *lru.Cache
 }
 
+// Lookup looks up a key in the map
 func (m *MapLRUStorage) Lookup(key []byte) (uint64, error) {
 	entry, exists := m.data.Get(string(key))
 	if !exists {
@@ -36,6 +38,7 @@ func (m *MapLRUStorage) Lookup(key []byte) (uint64, error) {
 	return entry.(uint64), nil
 }
 
+// Update updates a key in the map
 func (m *MapLRUStorage) Update(key []byte, value []byte, kind MapUpdateType) (bool, error) {
 	addr, exists := m.data.Get(string(key))
 	if exists {
@@ -49,6 +52,7 @@ func (m *MapLRUStorage) Update(key []byte, value []byte, kind MapUpdateType) (bo
 	return true, nil
 }
 
+// Delete deletes a key in the map
 func (m *MapLRUStorage) Delete(key []byte) (bool, error) {
 	addr, exists := m.data.Get(string(key))
 	if exists {
@@ -57,6 +61,7 @@ func (m *MapLRUStorage) Delete(key []byte) (bool, error) {
 	return m.data.Remove(string(key)), nil
 }
 
+// Keys returns the keys of the map
 func (m *MapLRUStorage) Keys() ([][]byte, error) {
 	var keys [][]byte
 
@@ -67,14 +72,17 @@ func (m *MapLRUStorage) Keys() ([][]byte, error) {
 	return keys, nil
 }
 
+// Read reads the map
 func (m *MapLRUStorage) Read() (<-chan []byte, error) {
 	return nil, errors.New("operation not supported")
 }
 
+// Write writes to the map
 func (m *MapLRUStorage) Write(data []byte) error {
 	return errors.New("operation not supported")
 }
 
+// NewMapLRUStorage creates a new map lru storage
 func NewMapLRUStorage(vm *VM, keySize, valueSize, maxEntries, flags uint32) (MapStorage, error) {
 	cache, err := lru.NewWithEvict(int(maxEntries), func(key, value interface{}) {
 		vm.heap.Free(value.(uint64))

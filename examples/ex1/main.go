@@ -109,8 +109,8 @@ func runTest() {
 		suggar.Fatalf("unexpected error: %v, %d", err, code)
 	}
 
-	data, err := vm.Map("inodes").Lookup(uint64(12345))
-	if err != nil {
+	data := make([]byte, 256)
+	if err := vm.Map("inodes").Lookup(uint64(12345), data); err != nil {
 		suggar.Fatalf("unexpected error: %v, %d", err, code)
 	}
 
