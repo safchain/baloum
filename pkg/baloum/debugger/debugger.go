@@ -70,12 +70,20 @@ func (d *Debugger) dumpRegister(vm *baloum.VM) {
 		if i > 0 {
 			fmt.Printf(", ")
 		}
-		fmt.Printf("R%d: %v", i, v)
+		if i == 10 {
+			fmt.Printf("RFP: %v", v)
+		} else {
+			fmt.Printf("R%d: %v", i, v)
+		}
 	}
 	fmt.Println()
 }
 
-func (d *Debugger) dumpBytes(bytes []byte) {
+func isASCII(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+}
+
+func (d *Debugger) dumpBytes(bytes []byte, ascii bool) {
 	var notFirst bool
 	for i, b := range bytes {
 		if i%16 == 0 {
@@ -85,13 +93,17 @@ func (d *Debugger) dumpBytes(bytes []byte) {
 			notFirst = true
 			fmt.Printf("%3d    ", i)
 		}
-		fmt.Printf("%03d ", b)
+		if ascii && isASCII(b) {
+			fmt.Printf("..%c ", b)
+		} else {
+			fmt.Printf("%03d ", b)
+		}
 	}
 	fmt.Println()
 }
 
-func (d *Debugger) dumpStack(vm *baloum.VM) {
-	d.dumpBytes(vm.Stack())
+func (d *Debugger) dumpStack(vm *baloum.VM, args ...string) {
+	d.dumpBytes(vm.Stack(), len(args) > 0 && args[0] == "c")
 }
 
 func (d *Debugger) printMap(vm *baloum.VM, args ...string) {
@@ -119,10 +131,10 @@ func (d *Debugger) printMap(vm *baloum.VM, args ...string) {
 		}
 
 		fmt.Printf("key:\n")
-		d.dumpBytes(key)
+		d.dumpBytes(key, false)
 
 		fmt.Printf("value:\n")
-		d.dumpBytes(value)
+		d.dumpBytes(value, false)
 	}
 }
 
@@ -215,7 +227,7 @@ LOOP:
 	case ContinueCommand:
 		d.Enabled = false
 	case PrintStackCommand:
-		d.dumpStack(vm)
+		d.dumpStack(vm, args...)
 		goto LOOP
 	case PrintRegistersCommand:
 		d.dumpRegister(vm)

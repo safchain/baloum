@@ -33,9 +33,56 @@ type stackMemBlock struct {
 }
 
 type Program struct {
-	insts     asm.Instructions
-	blocks    []stackMemBlock
-	allocated int16
+	insts asm.Instructions
+}
+
+type EditorInst = func() (asm.Instructions, error)
+
+type VariableType int
+
+const (
+	Int8Type VariableType = iota
+	Uint8Type
+	Int16Type
+	Uint16Type
+	Int32Type
+	Uint32Type
+	Int64Type
+	UInt64Type
+	PtrType
+)
+
+func (vr VariableType) Sizeof() asm.Size {
+	switch vr {
+	case Int8Type, Uint8Type:
+		return asm.Byte
+	case Int16Type, Uint16Type:
+		return asm.Half
+	case Int32Type, Uint32Type:
+		return asm.Word
+	case Int64Type, UInt64Type:
+		return asm.DWord
+	case PtrType:
+		return asm.DWord
+	}
+	return asm.InvalidSize
+}
+
+type Variable struct {
+	Type VariableType
+	Addr int16
+}
+
+func (vr Variable) Sizeof() asm.Size {
+	return vr.Type.Sizeof()
+}
+
+type ProgramEditor struct {
+	program *Program
+	opts    ProgramEditorOpts
+	insts   []EditorInst
+	blocks  []stackMemBlock
+	vars    map[string]Variable
 }
 
 func (p *Program) Prepare(instLimit int) error {
@@ -113,7 +160,39 @@ func (p *Program) ResolveReferences() error {
 	return nil
 }
 
-func (p *Program) StackAlloc(size int16) (int16, error) {
+type ProgramEditorOpts struct {
+	StackSize int
+}
+
+func (p *ProgramEditorOpts) applyDefault() {
+	if p.StackSize == 0 {
+		p.StackSize = DEFAULT_STACK_SIZE
+	}
+}
+
+func (p *Program) Edit(opts ProgramEditorOpts) *ProgramEditor {
+	opts.applyDefault()
+
+	return &ProgramEditor{
+		program: p,
+		opts:    opts,
+		vars:    make(map[string]Variable),
+	}
+}
+
+func (p *ProgramEditor) Commit() error {
+	for _, inst := range p.insts {
+		insts, err := inst()
+		if err != nil {
+			return err
+		}
+
+		p.program.insts = append(p.program.insts, insts...)
+	}
+	return nil
+}
+
+func (p *ProgramEditor) StackAlloc(size int16) (int16, error) {
 	var lastAddr int16
 	for i, block := range p.blocks {
 		if !block.inuse && block.size >= size {
@@ -125,7 +204,7 @@ func (p *Program) StackAlloc(size int16) (int16, error) {
 
 			// fragment
 			inuse := stackMemBlock{
-				addr:  lastAddr - size,
+				addr:  lastAddr - int16(size),
 				size:  size,
 				inuse: true,
 			}
@@ -134,7 +213,7 @@ func (p *Program) StackAlloc(size int16) (int16, error) {
 			if block.size > size {
 				size = block.size - size
 				free := stackMemBlock{
-					addr: inuse.addr - size,
+					addr: inuse.addr - int16(size),
 					size: size,
 				}
 
@@ -142,18 +221,17 @@ func (p *Program) StackAlloc(size int16) (int16, error) {
 			}
 			p.blocks = append(p.blocks, right...)
 
-			p.allocated += size
 			return inuse.addr, nil
 		}
 		lastAddr = block.addr
 	}
 
-	if lastAddr-size < -DEFAULT_STACK_SIZE {
+	if lastAddr-int16(size) < -DEFAULT_STACK_SIZE {
 		return 0, errors.New("out of stack memory")
 	}
 
 	block := stackMemBlock{
-		addr:  lastAddr - size,
+		addr:  lastAddr - int16(size),
 		size:  size,
 		inuse: true,
 	}
@@ -162,7 +240,25 @@ func (p *Program) StackAlloc(size int16) (int16, error) {
 	return block.addr, nil
 }
 
-func (p *Program) StackFree(addr int16) {
+func (p *ProgramEditor) Sizeof(addr int16) asm.Size {
+	for _, block := range p.blocks {
+		if block.addr == addr {
+			switch block.size {
+			case 1:
+				return asm.Byte
+			case 2:
+				return asm.Half
+			case 4:
+				return asm.Word
+			case 8:
+				return asm.DWord
+			}
+		}
+	}
+	return asm.InvalidSize
+}
+
+func (p *ProgramEditor) StackFree(addr int16) {
 	for i, block := range p.blocks {
 		if block.addr == addr {
 			if i+1 == len(p.blocks) {
@@ -178,20 +274,17 @@ func (p *Program) StackFree(addr int16) {
 	}
 }
 
-type Printk struct {
-	addr         int16
-	instructions asm.Instructions
-}
-
-func (p *Program) NewPrintk(format string) (*Printk, error) {
+func (p *ProgramEditor) stackBytes(bytes []byte) (int16, asm.Instructions, error) {
 	var instructions asm.Instructions
 
-	var values []int64
-	var value int64
-	var size int16
+	var (
+		values []int64
+		value  int64
+		size   int16
+		chars  []int64
+	)
 
-	var chars []int64
-	for _, c := range format {
+	for _, c := range bytes {
 		chars = append(chars, int64(c))
 	}
 	chars = append(chars, 0) // 0
@@ -212,7 +305,7 @@ func (p *Program) NewPrintk(format string) (*Printk, error) {
 
 	addr, err := p.StackAlloc(int16(len(values) * 8))
 	if err != nil {
-		return nil, err
+		return 0, nil, err
 	}
 
 	ptr := addr
@@ -237,23 +330,148 @@ func (p *Program) NewPrintk(format string) (*Printk, error) {
 		ptr += 8
 	}
 
-	// TODO add reg backup/restore
-
-	instructions = append(instructions,
-		asm.Mov.Reg(asm.R1, asm.RFP),
-		asm.Add.Imm(asm.R1, int32(addr)),
-		asm.Mov.Imm(asm.R2, int32(len(format)+1)),
-		asm.FnTracePrintk.Call(),
-	)
-
-	return &Printk{
-		addr:         addr,
-		instructions: instructions,
-	}, nil
+	return addr, instructions, nil
 }
 
-func (p Printk) Call() asm.Instructions {
-	return p.instructions
+func (p *ProgramEditor) Return(code int) {
+	inst := func() (asm.Instructions, error) {
+		var instructions asm.Instructions
+		instructions = append(instructions,
+			asm.Mov.Imm(asm.R0, int32(code)),
+			asm.Return(),
+		)
+
+		return instructions, nil
+	}
+	p.insts = append(p.insts, inst)
+}
+
+func (p *ProgramEditor) Printk(format string, arg1 interface{}, arg2 interface{}, arg3 interface{}) {
+	inst := func() (asm.Instructions, error) {
+		var instructions asm.Instructions
+
+		// format
+		addr, insts, err := p.stackBytes([]byte(format))
+		if err != nil {
+			return nil, err
+		}
+		instructions = append(instructions, insts...)
+
+		instructions = append(instructions,
+			asm.Mov.Reg(asm.R1, asm.RFP),
+			asm.Add.Imm(asm.R1, int32(addr)),
+			asm.Mov.Imm(asm.R2, int32(len(format)+1)),
+		)
+
+		// add arg using the type, either the direct value of doing a var resolution
+		addArg := func(reg asm.Register, arg interface{}) error {
+			switch arg := arg.(type) {
+			case int32:
+				instructions = append(instructions, asm.Mov.Imm(reg, int32(arg)))
+			case string:
+				vr, exists := p.vars[arg]
+				if !exists {
+					return fmt.Errorf("variable %s doesn't exist", arg)
+				}
+				instructions = append(
+					instructions,
+					asm.LoadMem(reg, asm.RFP, vr.Addr, vr.Sizeof()),
+				)
+			case nil:
+			default:
+				return fmt.Errorf("unknown argument type %d", arg1)
+			}
+
+			return nil
+		}
+
+		if err := addArg(asm.R3, arg1); err != nil {
+			return nil, err
+		}
+		if err := addArg(asm.R4, arg2); err != nil {
+			return nil, err
+		}
+		if err := addArg(asm.R5, arg3); err != nil {
+			return nil, err
+		}
+
+		instructions = append(instructions,
+			asm.FnTracePrintk.Call(),
+		)
+
+		p.StackFree(addr)
+
+		return instructions, nil
+	}
+	p.insts = append(p.insts, inst)
+}
+
+func (p *ProgramEditor) NewVar(name string, value interface{}) {
+	inst := func() (asm.Instructions, error) {
+		var instructions asm.Instructions
+
+		switch v := value.(type) {
+		case int8:
+		case uint8:
+		case int16:
+		case uint16:
+		case int32:
+		case uint32:
+			addr, err := p.StackAlloc(int16(asm.Word.Sizeof()))
+			if err != nil {
+				return nil, err
+			}
+			p.vars[name] = Variable{Type: Uint32Type, Addr: addr}
+
+			instructions = append(instructions,
+				asm.Mov.Imm(asm.R1, int32(v)),
+				asm.StoreMem(asm.RFP, addr, asm.R1, asm.Word),
+			)
+		case int64:
+		case uint64:
+		case []byte:
+			ptr, err := p.StackAlloc(int16(asm.DWord.Sizeof()))
+			if err != nil {
+				return nil, err
+			}
+			p.vars[name] = Variable{Type: PtrType, Addr: ptr}
+
+			addr, insts, err := p.stackBytes(v)
+			if err != nil {
+				return nil, err
+			}
+			instructions = append(instructions, insts...)
+
+			instructions = append(instructions,
+				asm.Mov.Imm(asm.R1, int32(p.opts.StackSize+int(addr))),
+				asm.StoreMem(asm.RFP, ptr, asm.R1, asm.DWord),
+			)
+		case string:
+			ptr, err := p.StackAlloc(int16(asm.DWord.Sizeof()))
+			if err != nil {
+				return nil, err
+			}
+			p.vars[name] = Variable{Type: PtrType, Addr: ptr}
+
+			addr, insts, err := p.stackBytes([]byte(v))
+			if err != nil {
+				return nil, err
+			}
+			instructions = append(instructions, insts...)
+
+			instructions = append(instructions,
+				asm.Mov.Imm(asm.R1, int32(p.opts.StackSize+int(addr))),
+				asm.StoreMem(asm.RFP, ptr, asm.R1, asm.DWord),
+			)
+		}
+
+		return instructions, nil
+	}
+	p.insts = append(p.insts, inst)
+}
+
+func (p *ProgramEditor) FreeVar() {
+	// TODO(safchain) think of ptr
 }
 
 func (p *Program) Append(insts ...interface{}) {

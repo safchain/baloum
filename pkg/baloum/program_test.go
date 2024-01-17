@@ -17,84 +17,87 @@ limitations under the License.
 package baloum
 
 import (
+	"fmt"
 	"testing"
 
+	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/asm"
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/zap"
 )
 
 func TestStackAlloc(t *testing.T) {
 	t.Run("success1", func(t *testing.T) {
-		var prog Program
+		var editor ProgramEditor
 
-		addr, err := prog.StackAlloc(512)
+		addr, err := editor.StackAlloc(512)
 		assert.Nil(t, err)
 		assert.Equal(t, int16(-512), addr)
 	})
 
 	t.Run("full-one-block", func(t *testing.T) {
-		var prog Program
+		var editor ProgramEditor
 
-		addr, err := prog.StackAlloc(512)
+		addr, err := editor.StackAlloc(512)
 		assert.Nil(t, err)
 		assert.Equal(t, int16(-512), addr)
 
-		_, err = prog.StackAlloc(1)
+		_, err = editor.StackAlloc(1)
 		assert.NotNil(t, err)
 	})
 
 	t.Run("one-block-reuse", func(t *testing.T) {
-		var prog Program
+		var editor ProgramEditor
 
-		addr, err := prog.StackAlloc(512)
+		addr, err := editor.StackAlloc(512)
 		assert.Nil(t, err)
 		assert.Equal(t, int16(-512), addr)
 
-		prog.StackFree(addr)
+		editor.StackFree(addr)
 
-		addr, err = prog.StackAlloc(512)
+		addr, err = editor.StackAlloc(512)
 		assert.Nil(t, err)
 		assert.Equal(t, int16(-512), addr)
 	})
 
 	t.Run("two-blocks", func(t *testing.T) {
-		var prog Program
+		var editor ProgramEditor
 
-		addr, err := prog.StackAlloc(256)
+		addr, err := editor.StackAlloc(256)
 		assert.Nil(t, err)
 		assert.Equal(t, int16(-256), addr)
 
-		addr, err = prog.StackAlloc(256)
+		addr, err = editor.StackAlloc(256)
 		assert.Nil(t, err)
 		assert.Equal(t, int16(-512), addr)
 	})
 
 	t.Run("three-blocks-with-free", func(t *testing.T) {
-		var prog Program
+		var editor ProgramEditor
 
-		addr1, err := prog.StackAlloc(256)
+		addr1, err := editor.StackAlloc(256)
 		assert.Nil(t, err)
 		assert.Equal(t, int16(-256), addr1)
 
-		addr2, err := prog.StackAlloc(256)
+		addr2, err := editor.StackAlloc(256)
 		assert.Nil(t, err)
 		assert.Equal(t, int16(-512), addr2)
 
-		prog.StackFree(addr1)
+		editor.StackFree(addr1)
 
-		addr3, err := prog.StackAlloc(128)
+		addr3, err := editor.StackAlloc(128)
 		assert.Nil(t, err)
 		assert.Equal(t, int16(-128), addr3)
 
-		addr4, err := prog.StackAlloc(32)
+		addr4, err := editor.StackAlloc(32)
 		assert.Nil(t, err)
 		assert.Equal(t, int16(-160), addr4)
 
-		addr5, err := prog.StackAlloc(32)
+		addr5, err := editor.StackAlloc(32)
 		assert.Nil(t, err)
 		assert.Equal(t, int16(-192), addr5)
 
-		_, err = prog.StackAlloc(65)
+		_, err = editor.StackAlloc(65)
 		assert.NotNil(t, err)
 	})
 }
@@ -128,5 +131,58 @@ func TestDagVerifier(t *testing.T) {
 
 		err := prog.Prepare(4096)
 		assert.NoError(t, err)
+	})
+}
+
+func TestEditor(t *testing.T) {
+
+	t.Run("printk", func(t *testing.T) {
+		var prog Program
+		editor := prog.Edit(ProgramEditorOpts{})
+
+		editor.NewVar("var1", uint32(55))
+		editor.NewVar("var2", uint32(88))
+		editor.NewVar("var3", "test")
+		editor.Printk(">> %d %d %s", "var1", "var2", "var3")
+
+		err := editor.Commit()
+		assert.NoError(t, err)
+
+		err = prog.Prepare(4096)
+		assert.NoError(t, err)
+
+		fmt.Printf("PROG: %+v\n", prog.insts)
+
+		logger, _ := zap.NewDevelopment()
+		defer logger.Sync()
+
+		suggar := logger.Sugar()
+		var printed string
+
+		fncs := Fncs{
+			TracePrintk: func(vm *VM, format string, args ...interface{}) error {
+				printed = fmt.Sprintf(format, args...)
+				return nil
+			},
+		}
+
+		spec := &ebpf.CollectionSpec{
+			Programs: map[string]*ebpf.ProgramSpec{
+				"test/printk": {
+					Name:         "test/printk",
+					SectionName:  "test/printk",
+					Type:         ebpf.Kprobe,
+					Instructions: prog.Instructions(),
+				},
+			},
+		}
+
+		vm := NewVM(spec, Opts{Fncs: fncs, Logger: suggar})
+
+		var ctx StdContext
+		code, err := vm.RunProgram(&ctx, "test/printk")
+		assert.Zero(t, code)
+		assert.Nil(t, err)
+		assert.Equal(t, "this is a printk test, values: 123:hello", printed)
 	})
 }

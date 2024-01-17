@@ -38,8 +38,6 @@ type vmState struct {
 	stack []byte
 }
 
-type program []asm.Instruction
-
 type VM struct {
 	Spec      *ebpf.CollectionSpec
 	Opts      Opts
@@ -294,12 +292,11 @@ func isStrSection(name string) bool {
 }
 
 func secStrNameKey(name string, offset uint64) string {
-	return fmt.Sprintf("%s.%d", name, offset)
+	return fmt.Sprintf("%s.%d", strings.Replace(name, ".", "", -1), offset)
 }
 
 func (vm *VM) getStringAddr(name string, offset uint64) (uint64, error) {
 	// normalize
-	name = strings.Replace(name, ".", "", -1)
 	key := secStrNameKey(name, offset)
 
 	addr, exists := vm.strs[key]
@@ -319,7 +316,7 @@ func (vm *VM) initStrs() {
 				for o, c := range content.Value.([]byte) {
 					if c == 0x0 {
 						if str := string(data); len(str) != 0 {
-							key := fmt.Sprintf("%s.%d", m.Name, offset)
+							key := secStrNameKey(m.Name, uint64(offset))
 							vm.strs[key] = vm.heap.AllocWith([]byte(str))
 						}
 
@@ -442,6 +439,7 @@ func (vm *VM) RunInstructions(ctx Context, insts []asm.Instruction) (int64, erro
 			vm.Opts.Observer.ObserveInst(vm, pc, &inst)
 		}
 
+		// TODO(safchain) make debugger a inst observer
 		vm.Opts.Logger.Debugf("%d > %v (%d)", pc, inst, inst.Size())
 		pc += int(inst.Size() / 8)
 
