@@ -145,10 +145,9 @@ func TestEditor(t *testing.T) {
 		editor.NewVar("var3", "test")
 		editor.Printk(">> %d %d %s", "var1", "var2", "var3")
 
-		err := editor.Commit()
-		assert.NoError(t, err)
+		editor.Commit()
 
-		err = prog.Prepare(4096)
+		err := prog.Prepare(4096)
 		assert.NoError(t, err)
 
 		fmt.Printf("PROG: %+v\n", prog.insts)

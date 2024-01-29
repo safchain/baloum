@@ -20,6 +20,7 @@ import (
 	"fmt"
 
 	"github.com/cilium/ebpf"
+	"github.com/cilium/ebpf/link"
 	"github.com/safchain/baloum/pkg/baloum"
 	"go.uber.org/zap"
 )
@@ -36,46 +37,83 @@ func main() {
 	var prog baloum.Program
 	editor := prog.Edit(baloum.ProgramEditorOpts{})
 
-	editor.NewVar("var1", uint32(55))
-	editor.NewVar("var2", uint32(88))
-	editor.NewVar("var3", "test123")
-	editor.Printk(">> %d %d %s", "var1", "var2", "var3")
-	editor.Return(0)
-
-	if err := editor.Commit(); err != nil {
+	var1, err := editor.NewVar("var1", uint32(55))
+	if err != nil {
 		suggar.Panicf("unexpected error: %v", err)
 	}
+
+	var2, err := editor.NewVar("var2", uint32(88))
+	if err != nil {
+		suggar.Panicf("unexpected error: %v", err)
+	}
+
+	var3, err := editor.NewVar("var3", "test123")
+	if err != nil {
+		suggar.Panicf("unexpected error: %v", err)
+	}
+
+	err = editor.IfThenElse(editor.FakeIf,
+		func() error {
+			return editor.Printk(">> %d %d %s", var1, var2, var3)
+		}, func() error {
+			return editor.Printk(">>> else")
+		})
+	if err != nil {
+		suggar.Panicf("unexpected error: %v", err)
+	}
+
+	editor.Return(0)
+
+	editor.Commit()
 
 	if err := prog.Prepare(4096); err != nil {
 		suggar.Panicf("unexpected error: %v", err)
 	}
 
-	fncs := baloum.Fncs{
-		TracePrintk: func(vm *baloum.VM, format string, args ...interface{}) error {
-			suggar.Infof(format, args...)
-			return nil
-		},
-	}
-
 	spec := &ebpf.CollectionSpec{
 		Programs: map[string]*ebpf.ProgramSpec{
-			"test/printk": {
-				Name:         "test/printk",
-				SectionName:  "test/printk",
+			"kprobe_execve": {
+				Name:         "kprobe_execve",
+				SectionName:  "kprobe/sys_execve",
 				Type:         ebpf.Kprobe,
 				Instructions: prog.Instructions(),
+				License:      "GPL",
 			},
 		},
 	}
 
-	vm := baloum.NewVM(spec, baloum.Opts{Fncs: fncs, Observer: debugger})
-
-	var ctx baloum.StdContext
-
-	code, err := vm.RunProgram(&ctx, "test/printk")
-	if err != nil || code != 0 {
-		suggar.Panicf("unexpected error: %v, %d", err, code)
+	collection, err := ebpf.NewCollectionWithOptions(spec, ebpf.CollectionOptions{})
+	if err != nil {
+		suggar.Fatalf("opening kprobe: %s", err)
 	}
 
-	fmt.Printf("Done\n")
+	kp, err := link.Kprobe("sys_execve", collection.Programs["kprobe_execve"], nil)
+	if err != nil {
+		suggar.Fatalf("opening kprobe: %s", err)
+	}
+	defer kp.Close()
+
+	ch := make(chan bool)
+
+	fmt.Println("Started, ctrl-c to stop")
+	<-ch
+
+	/*
+		fncs := baloum.Fncs{
+			TracePrintk: func(vm *baloum.VM, format string, args ...interface{}) error {
+				suggar.Infof(format, args...)
+				return nil
+			},
+		}
+
+		vm := baloum.NewVM(spec, baloum.Opts{Fncs: fncs, Observer: debugger})
+
+		var ctx baloum.StdContext
+
+		code, err := vm.RunProgram(&ctx, "test/printk")
+		if err != nil || code != 0 {
+			suggar.Panicf("unexpected error: %v, %d", err, code)
+		}
+
+		fmt.Printf("Done\n")*/
 }

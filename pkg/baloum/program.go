@@ -20,11 +20,14 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strconv"
 
 	"golang.org/x/exp/slices"
 
 	"github.com/cilium/ebpf/asm"
 )
+
+// see : https://docs.kernel.org/bpf/verifier.html?highlight=ebpf%20tc
 
 type stackMemBlock struct {
 	addr  int16
@@ -35,8 +38,6 @@ type stackMemBlock struct {
 type Program struct {
 	insts asm.Instructions
 }
-
-type EditorInst = func() (asm.Instructions, error)
 
 type VariableType int
 
@@ -78,11 +79,12 @@ func (vr Variable) Sizeof() asm.Size {
 }
 
 type ProgramEditor struct {
-	program *Program
-	opts    ProgramEditorOpts
-	insts   []EditorInst
-	blocks  []stackMemBlock
-	vars    map[string]Variable
+	program   *Program
+	opts      ProgramEditorOpts
+	insts     asm.Instructions
+	blocks    []stackMemBlock
+	vars      map[string]*Variable
+	symbolIdx int
 }
 
 func (p *Program) Prepare(instLimit int) error {
@@ -176,20 +178,25 @@ func (p *Program) Edit(opts ProgramEditorOpts) *ProgramEditor {
 	return &ProgramEditor{
 		program: p,
 		opts:    opts,
-		vars:    make(map[string]Variable),
+		vars:    make(map[string]*Variable),
 	}
 }
 
-func (p *ProgramEditor) Commit() error {
-	for _, inst := range p.insts {
-		insts, err := inst()
-		if err != nil {
-			return err
+func (p *ProgramEditor) Commit() {
+	// relocate symbol
+	for i := 0; i != len(p.insts); i++ {
+		if symbol := p.insts[i].Symbol(); symbol != "" {
+			p.insts[i] = p.insts[i].WithSymbol("")
+			p.insts[i+1] = p.insts[i+1].WithSymbol(symbol)
+			i++
 		}
-
-		p.program.insts = append(p.program.insts, insts...)
 	}
-	return nil
+
+	p.program.insts = append(p.program.insts, p.insts...)
+
+	for _, inst := range p.program.insts {
+		fmt.Printf("%v [%s]\n", inst, inst.Symbol())
+	}
 }
 
 func (p *ProgramEditor) StackAlloc(size int16) (int16, error) {
@@ -226,7 +233,7 @@ func (p *ProgramEditor) StackAlloc(size int16) (int16, error) {
 		lastAddr = block.addr
 	}
 
-	if lastAddr-int16(size) < -DEFAULT_STACK_SIZE {
+	if lastAddr-int16(size) < -int16(p.opts.StackSize) {
 		return 0, errors.New("out of stack memory")
 	}
 
@@ -333,141 +340,181 @@ func (p *ProgramEditor) stackBytes(bytes []byte) (int16, asm.Instructions, error
 	return addr, instructions, nil
 }
 
+func (p *ProgramEditor) nextSymbolSuffix() string {
+	symbol := strconv.Itoa(p.symbolIdx)
+	p.symbolIdx++
+	return symbol
+}
+
 func (p *ProgramEditor) Return(code int) {
-	inst := func() (asm.Instructions, error) {
-		var instructions asm.Instructions
-		instructions = append(instructions,
-			asm.Mov.Imm(asm.R0, int32(code)),
-			asm.Return(),
-		)
-
-		return instructions, nil
-	}
-	p.insts = append(p.insts, inst)
+	p.insts = append(p.insts,
+		asm.Mov.Imm(asm.R0, int32(code)),
+		asm.Return(),
+	)
 }
 
-func (p *ProgramEditor) Printk(format string, arg1 interface{}, arg2 interface{}, arg3 interface{}) {
-	inst := func() (asm.Instructions, error) {
-		var instructions asm.Instructions
-
-		// format
-		addr, insts, err := p.stackBytes([]byte(format))
-		if err != nil {
-			return nil, err
-		}
-		instructions = append(instructions, insts...)
-
-		instructions = append(instructions,
-			asm.Mov.Reg(asm.R1, asm.RFP),
-			asm.Add.Imm(asm.R1, int32(addr)),
-			asm.Mov.Imm(asm.R2, int32(len(format)+1)),
-		)
-
-		// add arg using the type, either the direct value of doing a var resolution
-		addArg := func(reg asm.Register, arg interface{}) error {
-			switch arg := arg.(type) {
-			case int32:
-				instructions = append(instructions, asm.Mov.Imm(reg, int32(arg)))
-			case string:
-				vr, exists := p.vars[arg]
-				if !exists {
-					return fmt.Errorf("variable %s doesn't exist", arg)
-				}
-				instructions = append(
-					instructions,
-					asm.LoadMem(reg, asm.RFP, vr.Addr, vr.Sizeof()),
-				)
-			case nil:
-			default:
-				return fmt.Errorf("unknown argument type %d", arg1)
-			}
-
-			return nil
-		}
-
-		if err := addArg(asm.R3, arg1); err != nil {
-			return nil, err
-		}
-		if err := addArg(asm.R4, arg2); err != nil {
-			return nil, err
-		}
-		if err := addArg(asm.R5, arg3); err != nil {
-			return nil, err
-		}
-
-		instructions = append(instructions,
-			asm.FnTracePrintk.Call(),
-		)
-
-		p.StackFree(addr)
-
-		return instructions, nil
+// TODO(safchain) make args optionals
+func (p *ProgramEditor) Printk(format string, args ...interface{}) error {
+	if len(args) > 3 {
+		return errors.New("maximum of args excedeed")
 	}
-	p.insts = append(p.insts, inst)
-}
 
-func (p *ProgramEditor) NewVar(name string, value interface{}) {
-	inst := func() (asm.Instructions, error) {
-		var instructions asm.Instructions
+	// format
+	addr, insts, err := p.stackBytes([]byte(format))
+	if err != nil {
+		return err
+	}
+	p.insts = append(p.insts, insts...)
 
-		switch v := value.(type) {
-		case int8:
-		case uint8:
-		case int16:
-		case uint16:
+	p.insts = append(p.insts,
+		asm.Mov.Reg(asm.R1, asm.RFP),
+		asm.Add.Imm(asm.R1, int32(addr)),
+		asm.Mov.Imm(asm.R2, int32(len(format)+1)),
+	)
+
+	// add arg using the type, either the direct value of doing a var resolution
+	addArg := func(reg asm.Register, arg interface{}) error {
+		switch arg := arg.(type) {
 		case int32:
-		case uint32:
-			addr, err := p.StackAlloc(int16(asm.Word.Sizeof()))
-			if err != nil {
-				return nil, err
-			}
-			p.vars[name] = Variable{Type: Uint32Type, Addr: addr}
-
-			instructions = append(instructions,
-				asm.Mov.Imm(asm.R1, int32(v)),
-				asm.StoreMem(asm.RFP, addr, asm.R1, asm.Word),
+			p.insts = append(p.insts, asm.Mov.Imm(reg, int32(arg)))
+		case *Variable:
+			p.insts = append(p.insts,
+				asm.LoadMem(reg, asm.RFP, arg.Addr, arg.Sizeof()),
 			)
-		case int64:
-		case uint64:
-		case []byte:
-			ptr, err := p.StackAlloc(int16(asm.DWord.Sizeof()))
-			if err != nil {
-				return nil, err
-			}
-			p.vars[name] = Variable{Type: PtrType, Addr: ptr}
-
-			addr, insts, err := p.stackBytes(v)
-			if err != nil {
-				return nil, err
-			}
-			instructions = append(instructions, insts...)
-
-			instructions = append(instructions,
-				asm.Mov.Imm(asm.R1, int32(p.opts.StackSize+int(addr))),
-				asm.StoreMem(asm.RFP, ptr, asm.R1, asm.DWord),
-			)
-		case string:
-			ptr, err := p.StackAlloc(int16(asm.DWord.Sizeof()))
-			if err != nil {
-				return nil, err
-			}
-			p.vars[name] = Variable{Type: PtrType, Addr: ptr}
-
-			addr, insts, err := p.stackBytes([]byte(v))
-			if err != nil {
-				return nil, err
-			}
-			instructions = append(instructions, insts...)
-
-			instructions = append(instructions,
-				asm.Mov.Imm(asm.R1, int32(p.opts.StackSize+int(addr))),
-				asm.StoreMem(asm.RFP, ptr, asm.R1, asm.DWord),
-			)
+		case nil:
+		default:
+			return fmt.Errorf("unknown argument type %d", arg)
 		}
 
-		return instructions, nil
+		return nil
 	}
-	p.insts = append(p.insts, inst)
+
+	regs := []asm.Register{asm.R3, asm.R4, asm.R5}
+	for i, arg := range args {
+		if err := addArg(regs[i], arg); err != nil {
+			return err
+		}
+	}
+
+	p.insts = append(p.insts,
+		asm.FnTracePrintk.Call(),
+	)
+
+	p.StackFree(addr)
+
+	return nil
+}
+
+func (p *ProgramEditor) FakeIf(trueSym, falseSym string) error {
+	p.insts = append(p.insts,
+		asm.Mov.Imm(asm.R5, 44),
+		asm.JEq.Imm(asm.R5, 44, trueSym),
+		asm.Ja.Label(falseSym),
+	)
+	return nil
+}
+
+func (p *ProgramEditor) lastInstIdx() int {
+	return len(p.insts) - 1
+}
+
+func (p *ProgramEditor) IfThenElse(cond func(trueSym, falseSym string) error, then func() error, els func() error) error {
+	symSuffix := p.nextSymbolSuffix()
+
+	var (
+		trueSym  = "then-" + symSuffix
+		falseSym = "endif-" + symSuffix
+	)
+
+	if els != nil {
+		falseSym = "endthen-" + symSuffix
+	}
+
+	if err := cond(trueSym, falseSym); err != nil {
+		return err
+	}
+
+	p.insts[p.lastInstIdx()] = p.insts[p.lastInstIdx()].WithSymbol(trueSym)
+	if err := then(); err != nil {
+		return err
+	}
+	p.insts = append(p.insts,
+		asm.Ja.Label("endif-"+symSuffix).WithSymbol("endthen-"+symSuffix),
+	)
+
+	if els != nil {
+		if err := els(); err != nil {
+			return err
+		}
+	}
+	p.insts[p.lastInstIdx()] = p.insts[p.lastInstIdx()].WithSymbol("endif-" + symSuffix)
+
+	return nil
+}
+
+func (p *ProgramEditor) NewNumberVar(name string, kind VariableType, value int32) (*Variable, error) {
+	addr, err := p.StackAlloc(int16(asm.Word.Sizeof()))
+	if err != nil {
+		return nil, err
+	}
+	variable := &Variable{Type: kind, Addr: addr}
+	p.vars[name] = variable
+
+	p.insts = append(p.insts,
+		asm.Mov.Imm(asm.R1, value),
+		asm.StoreMem(asm.RFP, addr, asm.R1, asm.Word),
+	)
+
+	return variable, nil
+}
+
+func (p *ProgramEditor) NewByteArrayVar(name string, value []byte) (*Variable, error) {
+	ptr, err := p.StackAlloc(int16(asm.DWord.Sizeof()))
+	if err != nil {
+		return nil, err
+	}
+	variable := &Variable{Type: PtrType, Addr: ptr}
+	p.vars[name] = variable
+
+	addr, insts, err := p.stackBytes(value)
+	if err != nil {
+		return nil, err
+	}
+	p.insts = append(p.insts, insts...)
+
+	p.insts = append(p.insts,
+		asm.Mov.Imm(asm.R1, int32(p.opts.StackSize+int(addr))),
+		asm.StoreMem(asm.RFP, ptr, asm.R1, asm.DWord),
+	)
+
+	return variable, nil
+}
+
+func (p *ProgramEditor) NewVar(name string, value interface{}) (*Variable, error) {
+	switch v := value.(type) {
+	case int8:
+		return p.NewNumberVar(name, Int8Type, int32(v))
+	case uint8:
+		return p.NewNumberVar(name, Uint8Type, int32(v))
+	case int16:
+		return p.NewNumberVar(name, Int16Type, int32(v))
+	case uint16:
+		return p.NewNumberVar(name, Uint16Type, int32(v))
+	case int32:
+		return p.NewNumberVar(name, Int32Type, int32(v))
+	case uint32:
+		return p.NewNumberVar(name, Uint32Type, int32(v))
+	case int64:
+		// TODO(safchain)
+	case uint64:
+		// TODO(safchain)
+	case []byte:
+		return p.NewByteArrayVar(name, v)
+	case string:
+		return p.NewByteArrayVar(name, []byte(v))
+	}
+
+	return nil, fmt.Errorf("variable `%s` type unknown", name)
 }
 
 func (p *ProgramEditor) FreeVar() {
