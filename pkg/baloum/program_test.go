@@ -140,17 +140,16 @@ func TestEditor(t *testing.T) {
 		var prog Program
 		editor := prog.Edit(ProgramEditorOpts{})
 
-		editor.NewVar("var1", uint32(55))
-		editor.NewVar("var2", uint32(88))
-		editor.NewVar("var3", "test")
-		editor.Printk(">> %d %d %s", "var1", "var2", "var3")
+		var1, _ := editor.NewVar("var1", uint32(55))
+		var2, _ := editor.NewVar("var2", uint32(88))
+		var3, _ := editor.NewVar("var3", "test")
+		editor.Printk("this is a printk test, values: %d %d %s", var1, var2, var3)
+		editor.Return(0)
 
 		editor.Commit()
 
 		err := prog.Prepare(4096)
 		assert.NoError(t, err)
-
-		fmt.Printf("PROG: %+v\n", prog.insts)
 
 		logger, _ := zap.NewDevelopment()
 		defer logger.Sync()
@@ -182,6 +181,222 @@ func TestEditor(t *testing.T) {
 		code, err := vm.RunProgram(&ctx, "test/printk")
 		assert.Zero(t, code)
 		assert.Nil(t, err)
-		assert.Equal(t, "this is a printk test, values: 123:hello", printed)
+		assert.Equal(t, "this is a printk test, values: 55 88 test", printed)
+	})
+
+	t.Run("if-then-else-ok", func(t *testing.T) {
+		var prog Program
+		editor := prog.Edit(ProgramEditorOpts{})
+
+		editor.IfThenElse(
+			editor.True,
+			func() error {
+				return editor.Printk("ok")
+			},
+			func() error {
+				return editor.Printk("ko")
+			},
+		)
+		editor.Return(0)
+
+		editor.Commit()
+
+		err := prog.Prepare(4096)
+		assert.NoError(t, err)
+
+		logger, _ := zap.NewDevelopment()
+		defer logger.Sync()
+
+		suggar := logger.Sugar()
+		var printed string
+
+		fncs := Fncs{
+			TracePrintk: func(vm *VM, format string, args ...interface{}) error {
+				printed = fmt.Sprintf(format, args...)
+				return nil
+			},
+		}
+
+		spec := &ebpf.CollectionSpec{
+			Programs: map[string]*ebpf.ProgramSpec{
+				"test/printk": {
+					Name:         "test/printk",
+					SectionName:  "test/printk",
+					Type:         ebpf.Kprobe,
+					Instructions: prog.Instructions(),
+				},
+			},
+		}
+
+		vm := NewVM(spec, Opts{Fncs: fncs, Logger: suggar})
+
+		var ctx StdContext
+		code, err := vm.RunProgram(&ctx, "test/printk")
+		assert.Zero(t, code)
+		assert.Nil(t, err)
+		assert.Equal(t, "ok", printed)
+	})
+
+	t.Run("if-then-else-ko", func(t *testing.T) {
+		var prog Program
+		editor := prog.Edit(ProgramEditorOpts{})
+
+		editor.IfThenElse(
+			editor.False,
+			func() error {
+				return editor.Printk("ok")
+			},
+			func() error {
+				return editor.Printk("ko")
+			},
+		)
+		editor.Return(0)
+
+		editor.Commit()
+
+		err := prog.Prepare(4096)
+		assert.NoError(t, err)
+
+		logger, _ := zap.NewDevelopment()
+		defer logger.Sync()
+
+		suggar := logger.Sugar()
+		var printed string
+
+		fncs := Fncs{
+			TracePrintk: func(vm *VM, format string, args ...interface{}) error {
+				printed = fmt.Sprintf(format, args...)
+				return nil
+			},
+		}
+
+		spec := &ebpf.CollectionSpec{
+			Programs: map[string]*ebpf.ProgramSpec{
+				"test/printk": {
+					Name:         "test/printk",
+					SectionName:  "test/printk",
+					Type:         ebpf.Kprobe,
+					Instructions: prog.Instructions(),
+				},
+			},
+		}
+
+		vm := NewVM(spec, Opts{Fncs: fncs, Logger: suggar})
+
+		var ctx StdContext
+		code, err := vm.RunProgram(&ctx, "test/printk")
+		assert.Zero(t, code)
+		assert.Nil(t, err)
+		assert.Equal(t, "ko", printed)
+	})
+
+	t.Run("strcmp-static-ok", func(t *testing.T) {
+		var prog Program
+		editor := prog.Edit(ProgramEditorOpts{})
+
+		var1, _ := editor.NewVar("var1", "test123")
+
+		editor.IfThenElse(
+			editor.StrStaticCmp(var1, "test123"),
+			func() error {
+				return editor.Printk("ok")
+			},
+			func() error {
+				return editor.Printk("ko")
+			},
+		)
+		editor.Return(0)
+
+		editor.Commit()
+
+		err := prog.Prepare(4096)
+		assert.NoError(t, err)
+
+		logger, _ := zap.NewDevelopment()
+		defer logger.Sync()
+
+		suggar := logger.Sugar()
+		var printed string
+
+		fncs := Fncs{
+			TracePrintk: func(vm *VM, format string, args ...interface{}) error {
+				printed = fmt.Sprintf(format, args...)
+				return nil
+			},
+		}
+
+		spec := &ebpf.CollectionSpec{
+			Programs: map[string]*ebpf.ProgramSpec{
+				"test/printk": {
+					Name:         "test/printk",
+					SectionName:  "test/printk",
+					Type:         ebpf.Kprobe,
+					Instructions: prog.Instructions(),
+				},
+			},
+		}
+
+		vm := NewVM(spec, Opts{Fncs: fncs, Logger: suggar})
+
+		var ctx StdContext
+		code, err := vm.RunProgram(&ctx, "test/printk")
+		assert.Zero(t, code)
+		assert.Nil(t, err)
+		assert.Equal(t, "ok", printed)
+	})
+
+	t.Run("strcmp-static-ko", func(t *testing.T) {
+		var prog Program
+		editor := prog.Edit(ProgramEditorOpts{})
+
+		var1, _ := editor.NewVar("var1", "test123")
+
+		editor.IfThenElse(
+			editor.StrStaticCmp(var1, "test567"),
+			func() error {
+				return editor.Printk("ok")
+			},
+			func() error {
+				return editor.Printk("ko")
+			},
+		)
+		editor.Return(0)
+
+		editor.Commit()
+
+		err := prog.Prepare(4096)
+		assert.NoError(t, err)
+
+		logger, _ := zap.NewDevelopment()
+		defer logger.Sync()
+
+		suggar := logger.Sugar()
+		var printed string
+
+		fncs := Fncs{
+			TracePrintk: func(vm *VM, format string, args ...interface{}) error {
+				printed = fmt.Sprintf(format, args...)
+				return nil
+			},
+		}
+
+		spec := &ebpf.CollectionSpec{
+			Programs: map[string]*ebpf.ProgramSpec{
+				"test/printk": {
+					Name:         "test/printk",
+					SectionName:  "test/printk",
+					Type:         ebpf.Kprobe,
+					Instructions: prog.Instructions(),
+				},
+			},
+		}
+
+		vm := NewVM(spec, Opts{Fncs: fncs, Logger: suggar})
+
+		var ctx StdContext
+		code, err := vm.RunProgram(&ctx, "test/printk")
+		assert.Zero(t, code)
+		assert.Nil(t, err)
+		assert.Equal(t, "ko", printed)
 	})
 }

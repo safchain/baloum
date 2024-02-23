@@ -199,7 +199,7 @@ func (d *Debugger) ObserveInst(vm *baloum.VM, pc int, inst *asm.Instruction) {
 		d.state = liner.NewLiner()
 	}
 
-	d.Enabled = d.Enabled || strings.HasPrefix(inst.Symbol(), "debugger")
+	d.Enabled = d.Enabled || strings.HasPrefix(inst.Symbol(), "breakpoint")
 	if !d.Enabled {
 		return
 	}

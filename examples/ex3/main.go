@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"flag"
 	"fmt"
 
 	"github.com/cilium/ebpf"
@@ -25,7 +26,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func main() {
+func run(test bool) {
 	logger, _ := zap.NewDevelopment()
 	defer logger.Sync()
 
@@ -52,12 +53,14 @@ func main() {
 		suggar.Panicf("unexpected error: %v", err)
 	}
 
-	err = editor.IfThenElse(editor.FakeIf,
+	err = editor.IfThenElse(
+		editor.StrStaticCmp(var3, "test123"),
 		func() error {
 			return editor.Printk(">> %d %d %s", var1, var2, var3)
 		}, func() error {
 			return editor.Printk(">>> else")
 		})
+
 	if err != nil {
 		suggar.Panicf("unexpected error: %v", err)
 	}
@@ -82,23 +85,23 @@ func main() {
 		},
 	}
 
-	collection, err := ebpf.NewCollectionWithOptions(spec, ebpf.CollectionOptions{})
-	if err != nil {
-		suggar.Fatalf("opening kprobe: %s", err)
-	}
+	if !test {
+		collection, err := ebpf.NewCollectionWithOptions(spec, ebpf.CollectionOptions{})
+		if err != nil {
+			suggar.Fatalf("opening kprobe: %s", err)
+		}
 
-	kp, err := link.Kprobe("sys_execve", collection.Programs["kprobe_execve"], nil)
-	if err != nil {
-		suggar.Fatalf("opening kprobe: %s", err)
-	}
-	defer kp.Close()
+		kp, err := link.Kprobe("sys_execve", collection.Programs["kprobe_execve"], nil)
+		if err != nil {
+			suggar.Fatalf("opening kprobe: %s", err)
+		}
+		defer kp.Close()
 
-	ch := make(chan bool)
+		ch := make(chan bool)
 
-	fmt.Println("Started, ctrl-c to stop")
-	<-ch
-
-	/*
+		fmt.Println("Started, ctrl-c to stop")
+		<-ch
+	} else {
 		fncs := baloum.Fncs{
 			TracePrintk: func(vm *baloum.VM, format string, args ...interface{}) error {
 				suggar.Infof(format, args...)
@@ -110,10 +113,18 @@ func main() {
 
 		var ctx baloum.StdContext
 
-		code, err := vm.RunProgram(&ctx, "test/printk")
+		code, err := vm.RunProgram(&ctx, "kprobe/sys_execve")
 		if err != nil || code != 0 {
 			suggar.Panicf("unexpected error: %v, %d", err, code)
 		}
 
-		fmt.Printf("Done\n")*/
+		fmt.Printf("Done\n")
+	}
+}
+
+func main() {
+	var test = flag.Bool("test", false, "run test program")
+	flag.Parse()
+
+	run(*test)
 }

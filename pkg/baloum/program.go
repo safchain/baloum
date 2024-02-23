@@ -21,10 +21,18 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"strings"
 
 	"golang.org/x/exp/slices"
 
 	"github.com/cilium/ebpf/asm"
+)
+
+type SymbolType = string
+
+const (
+	JumpSymbolType       SymbolType = "-jmp"
+	BreakpointSymbolType SymbolType = "breakpoint"
 )
 
 // see : https://docs.kernel.org/bpf/verifier.html?highlight=ebpf%20tc
@@ -185,7 +193,7 @@ func (p *Program) Edit(opts ProgramEditorOpts) *ProgramEditor {
 func (p *ProgramEditor) Commit() {
 	// relocate symbol
 	for i := 0; i != len(p.insts); i++ {
-		if symbol := p.insts[i].Symbol(); symbol != "" {
+		if symbol := p.insts[i].Symbol(); strings.HasSuffix(symbol, JumpSymbolType) {
 			p.insts[i] = p.insts[i].WithSymbol("")
 			p.insts[i+1] = p.insts[i+1].WithSymbol(symbol)
 			i++
@@ -340,8 +348,8 @@ func (p *ProgramEditor) stackBytes(bytes []byte) (int16, asm.Instructions, error
 	return addr, instructions, nil
 }
 
-func (p *ProgramEditor) nextSymbolSuffix() string {
-	symbol := strconv.Itoa(p.symbolIdx)
+func (p *ProgramEditor) nextSymbolSuffix(kind SymbolType) string {
+	symbol := strconv.Itoa(p.symbolIdx) + string(kind)
 	p.symbolIdx++
 	return symbol
 }
@@ -378,9 +386,17 @@ func (p *ProgramEditor) Printk(format string, args ...interface{}) error {
 		case int32:
 			p.insts = append(p.insts, asm.Mov.Imm(reg, int32(arg)))
 		case *Variable:
-			p.insts = append(p.insts,
-				asm.LoadMem(reg, asm.RFP, arg.Addr, arg.Sizeof()),
-			)
+			switch arg.Type {
+			case PtrType:
+				p.insts = append(p.insts,
+					asm.Mov.Reg(reg, asm.RFP),
+					asm.Add.Imm(reg, int32(arg.Addr)),
+				)
+			default:
+				p.insts = append(p.insts,
+					asm.LoadMem(reg, asm.RFP, arg.Addr, arg.Sizeof()),
+				)
+			}
 		case nil:
 		default:
 			return fmt.Errorf("unknown argument type %d", arg)
@@ -405,10 +421,69 @@ func (p *ProgramEditor) Printk(format string, args ...interface{}) error {
 	return nil
 }
 
-func (p *ProgramEditor) FakeIf(trueSym, falseSym string) error {
+func (p *ProgramEditor) StrStaticCmp(var1 *Variable, str string) func(trueSym, falseSym string) error {
+	return func(trueSym, falseSym string) error {
+		if var1.Type != PtrType {
+			return errors.New("invalid variable type")
+		}
+
+		size := int16(len(str))
+
+		p.insts = append(p.insts,
+			asm.Mov.Reg(asm.R1, asm.RFP),
+			asm.Add.Imm(asm.R1, int32(var1.Addr)),
+		)
+
+		for i := int16(0); i != size; i++ {
+			p.insts = append(p.insts,
+				asm.LoadMem(asm.R2, asm.R1, i, asm.Byte),
+				asm.JNE.Imm(asm.R2, int32(str[i]), falseSym),
+			)
+		}
+
+		p.insts = append(p.insts,
+			asm.LoadMem(asm.R2, asm.RFP, var1.Addr+size, asm.Byte),
+			asm.JEq.Imm(asm.R2, 0, trueSym),
+			asm.Ja.Label(falseSym),
+		)
+
+		return nil
+	}
+}
+
+func (p *ProgramEditor) StrCmp(var1 *Variable, var2 *Variable, unroll int) func(trueSym, falseSym string) error {
+	return func(trueSym string, falseSym string) error {
+		if var1.Type != PtrType || var2.Type != PtrType {
+			return errors.New("invalid variable type")
+		}
+
+		p.insts = append(p.insts,
+			asm.Mov.Imm(asm.R0, int32(var1.Addr)),
+			asm.Mov.Imm(asm.R1, int32(var2.Addr)),
+		)
+
+		for i := 0; i != unroll; i++ {
+			p.insts = append(p.insts,
+				asm.LoadMem(asm.R2, asm.R0, int16(i), asm.Word),
+				asm.LoadMem(asm.R3, asm.R1, int16(i), asm.Word),
+				asm.JNE.Reg(asm.R2, asm.R1, falseSym),
+				asm.JEq.Imm(asm.R2, 0, trueSym),
+			)
+		}
+
+		return nil
+	}
+}
+
+func (p *ProgramEditor) True(trueSym, _ string) error {
 	p.insts = append(p.insts,
-		asm.Mov.Imm(asm.R5, 44),
-		asm.JEq.Imm(asm.R5, 44, trueSym),
+		asm.Ja.Label(trueSym),
+	)
+	return nil
+}
+
+func (p *ProgramEditor) False(_, falseSym string) error {
+	p.insts = append(p.insts,
 		asm.Ja.Label(falseSym),
 	)
 	return nil
@@ -419,7 +494,7 @@ func (p *ProgramEditor) lastInstIdx() int {
 }
 
 func (p *ProgramEditor) IfThenElse(cond func(trueSym, falseSym string) error, then func() error, els func() error) error {
-	symSuffix := p.nextSymbolSuffix()
+	symSuffix := p.nextSymbolSuffix(JumpSymbolType)
 
 	var (
 		trueSym  = "then-" + symSuffix
@@ -469,23 +544,14 @@ func (p *ProgramEditor) NewNumberVar(name string, kind VariableType, value int32
 }
 
 func (p *ProgramEditor) NewByteArrayVar(name string, value []byte) (*Variable, error) {
-	ptr, err := p.StackAlloc(int16(asm.DWord.Sizeof()))
-	if err != nil {
-		return nil, err
-	}
-	variable := &Variable{Type: PtrType, Addr: ptr}
-	p.vars[name] = variable
-
 	addr, insts, err := p.stackBytes(value)
 	if err != nil {
 		return nil, err
 	}
-	p.insts = append(p.insts, insts...)
+	variable := &Variable{Type: PtrType, Addr: addr}
+	p.vars[name] = variable
 
-	p.insts = append(p.insts,
-		asm.Mov.Imm(asm.R1, int32(p.opts.StackSize+int(addr))),
-		asm.StoreMem(asm.RFP, ptr, asm.R1, asm.DWord),
-	)
+	p.insts = append(p.insts, insts...)
 
 	return variable, nil
 }
