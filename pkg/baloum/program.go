@@ -91,7 +91,6 @@ type ProgramEditor struct {
 	opts      ProgramEditorOpts
 	insts     asm.Instructions
 	blocks    []stackMemBlock
-	vars      map[string]*Variable
 	symbolIdx int
 }
 
@@ -186,7 +185,6 @@ func (p *Program) Edit(opts ProgramEditorOpts) *ProgramEditor {
 	return &ProgramEditor{
 		program: p,
 		opts:    opts,
-		vars:    make(map[string]*Variable),
 	}
 }
 
@@ -458,18 +456,33 @@ func (p *ProgramEditor) StrCmp(var1 *Variable, var2 *Variable, unroll int) func(
 		}
 
 		p.insts = append(p.insts,
-			asm.Mov.Imm(asm.R0, int32(var1.Addr)),
-			asm.Mov.Imm(asm.R1, int32(var2.Addr)),
+			asm.Mov.Reg(asm.R2, asm.RFP),
+			asm.Mov.Reg(asm.R3, asm.RFP),
+			asm.Add.Imm(asm.R2, int32(var1.Addr)),
+			asm.Add.Imm(asm.R3, int32(var2.Addr)),
 		)
 
+		addr1, addr2 := var1.Addr, var2.Addr
+
 		for i := 0; i != unroll; i++ {
+			if addr1 == 0 || addr2 == 0 {
+				break
+			}
+
 			p.insts = append(p.insts,
-				asm.LoadMem(asm.R2, asm.R0, int16(i), asm.Word),
-				asm.LoadMem(asm.R3, asm.R1, int16(i), asm.Word),
-				asm.JNE.Reg(asm.R2, asm.R1, falseSym),
-				asm.JEq.Imm(asm.R2, 0, trueSym),
+				asm.LoadMem(asm.R4, asm.R2, int16(i), asm.Byte),
+				asm.LoadMem(asm.R5, asm.R3, int16(i), asm.Byte),
+				asm.JNE.Reg(asm.R4, asm.R5, falseSym),
+				asm.Or.Reg(asm.R4, asm.R5),
+				asm.JEq.Imm(asm.R4, int32(0), trueSym),
 			)
+			addr1++
+			addr2++
 		}
+
+		p.insts = append(p.insts,
+			asm.Ja.Label(falseSym),
+		)
 
 		return nil
 	}
@@ -527,13 +540,12 @@ func (p *ProgramEditor) IfThenElse(cond func(trueSym, falseSym string) error, th
 	return nil
 }
 
-func (p *ProgramEditor) NewNumberVar(name string, kind VariableType, value int32) (*Variable, error) {
+func (p *ProgramEditor) NewNumberVar(kind VariableType, value int32) (*Variable, error) {
 	addr, err := p.StackAlloc(int16(asm.Word.Sizeof()))
 	if err != nil {
 		return nil, err
 	}
 	variable := &Variable{Type: kind, Addr: addr}
-	p.vars[name] = variable
 
 	p.insts = append(p.insts,
 		asm.Mov.Imm(asm.R1, value),
@@ -543,44 +555,44 @@ func (p *ProgramEditor) NewNumberVar(name string, kind VariableType, value int32
 	return variable, nil
 }
 
-func (p *ProgramEditor) NewByteArrayVar(name string, value []byte) (*Variable, error) {
+func (p *ProgramEditor) NewByteArrayVar(value []byte) (*Variable, error) {
 	addr, insts, err := p.stackBytes(value)
 	if err != nil {
 		return nil, err
 	}
 	variable := &Variable{Type: PtrType, Addr: addr}
-	p.vars[name] = variable
+	//p.vars[name] = variable
 
 	p.insts = append(p.insts, insts...)
 
 	return variable, nil
 }
 
-func (p *ProgramEditor) NewVar(name string, value interface{}) (*Variable, error) {
+func (p *ProgramEditor) NewVar(value interface{}) (*Variable, error) {
 	switch v := value.(type) {
 	case int8:
-		return p.NewNumberVar(name, Int8Type, int32(v))
+		return p.NewNumberVar(Int8Type, int32(v))
 	case uint8:
-		return p.NewNumberVar(name, Uint8Type, int32(v))
+		return p.NewNumberVar(Uint8Type, int32(v))
 	case int16:
-		return p.NewNumberVar(name, Int16Type, int32(v))
+		return p.NewNumberVar(Int16Type, int32(v))
 	case uint16:
-		return p.NewNumberVar(name, Uint16Type, int32(v))
+		return p.NewNumberVar(Uint16Type, int32(v))
 	case int32:
-		return p.NewNumberVar(name, Int32Type, int32(v))
+		return p.NewNumberVar(Int32Type, int32(v))
 	case uint32:
-		return p.NewNumberVar(name, Uint32Type, int32(v))
+		return p.NewNumberVar(Uint32Type, int32(v))
 	case int64:
 		// TODO(safchain)
 	case uint64:
 		// TODO(safchain)
 	case []byte:
-		return p.NewByteArrayVar(name, v)
+		return p.NewByteArrayVar(v)
 	case string:
-		return p.NewByteArrayVar(name, []byte(v))
+		return p.NewByteArrayVar([]byte(v))
 	}
 
-	return nil, fmt.Errorf("variable `%s` type unknown", name)
+	return nil, fmt.Errorf("variable type unknown")
 }
 
 func (p *ProgramEditor) FreeVar() {

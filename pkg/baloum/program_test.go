@@ -136,17 +136,8 @@ func TestDagVerifier(t *testing.T) {
 
 func TestEditor(t *testing.T) {
 
-	t.Run("printk", func(t *testing.T) {
-		var prog Program
-		editor := prog.Edit(ProgramEditorOpts{})
-
-		var1, _ := editor.NewVar("var1", uint32(55))
-		var2, _ := editor.NewVar("var2", uint32(88))
-		var3, _ := editor.NewVar("var3", "test")
-		editor.Printk("this is a printk test, values: %d %d %s", var1, var2, var3)
-		editor.Return(0)
-
-		editor.Commit()
+	run := func(prog *Program, expected string) {
+		t.Helper()
 
 		err := prog.Prepare(4096)
 		assert.NoError(t, err)
@@ -181,7 +172,22 @@ func TestEditor(t *testing.T) {
 		code, err := vm.RunProgram(&ctx, "test/printk")
 		assert.Zero(t, code)
 		assert.Nil(t, err)
-		assert.Equal(t, "this is a printk test, values: 55 88 test", printed)
+		assert.Equal(t, expected, printed)
+	}
+
+	t.Run("printk", func(t *testing.T) {
+		var prog Program
+		editor := prog.Edit(ProgramEditorOpts{})
+
+		var1, _ := editor.NewVar(uint32(55))
+		var2, _ := editor.NewVar(uint32(88))
+		var3, _ := editor.NewVar("test")
+		editor.Printk("this is a printk test, values: %d %d %s", var1, var2, var3)
+		editor.Return(0)
+
+		editor.Commit()
+
+		run(&prog, "this is a printk test, values: 55 88 test")
 	})
 
 	t.Run("if-then-else-ok", func(t *testing.T) {
@@ -201,40 +207,7 @@ func TestEditor(t *testing.T) {
 
 		editor.Commit()
 
-		err := prog.Prepare(4096)
-		assert.NoError(t, err)
-
-		logger, _ := zap.NewDevelopment()
-		defer logger.Sync()
-
-		suggar := logger.Sugar()
-		var printed string
-
-		fncs := Fncs{
-			TracePrintk: func(vm *VM, format string, args ...interface{}) error {
-				printed = fmt.Sprintf(format, args...)
-				return nil
-			},
-		}
-
-		spec := &ebpf.CollectionSpec{
-			Programs: map[string]*ebpf.ProgramSpec{
-				"test/printk": {
-					Name:         "test/printk",
-					SectionName:  "test/printk",
-					Type:         ebpf.Kprobe,
-					Instructions: prog.Instructions(),
-				},
-			},
-		}
-
-		vm := NewVM(spec, Opts{Fncs: fncs, Logger: suggar})
-
-		var ctx StdContext
-		code, err := vm.RunProgram(&ctx, "test/printk")
-		assert.Zero(t, code)
-		assert.Nil(t, err)
-		assert.Equal(t, "ok", printed)
+		run(&prog, "ok")
 	})
 
 	t.Run("if-then-else-ko", func(t *testing.T) {
@@ -254,47 +227,14 @@ func TestEditor(t *testing.T) {
 
 		editor.Commit()
 
-		err := prog.Prepare(4096)
-		assert.NoError(t, err)
-
-		logger, _ := zap.NewDevelopment()
-		defer logger.Sync()
-
-		suggar := logger.Sugar()
-		var printed string
-
-		fncs := Fncs{
-			TracePrintk: func(vm *VM, format string, args ...interface{}) error {
-				printed = fmt.Sprintf(format, args...)
-				return nil
-			},
-		}
-
-		spec := &ebpf.CollectionSpec{
-			Programs: map[string]*ebpf.ProgramSpec{
-				"test/printk": {
-					Name:         "test/printk",
-					SectionName:  "test/printk",
-					Type:         ebpf.Kprobe,
-					Instructions: prog.Instructions(),
-				},
-			},
-		}
-
-		vm := NewVM(spec, Opts{Fncs: fncs, Logger: suggar})
-
-		var ctx StdContext
-		code, err := vm.RunProgram(&ctx, "test/printk")
-		assert.Zero(t, code)
-		assert.Nil(t, err)
-		assert.Equal(t, "ko", printed)
+		run(&prog, "ko")
 	})
 
 	t.Run("strcmp-static-ok", func(t *testing.T) {
 		var prog Program
 		editor := prog.Edit(ProgramEditorOpts{})
 
-		var1, _ := editor.NewVar("var1", "test123")
+		var1, _ := editor.NewVar("test123")
 
 		editor.IfThenElse(
 			editor.StrStaticCmp(var1, "test123"),
@@ -309,47 +249,14 @@ func TestEditor(t *testing.T) {
 
 		editor.Commit()
 
-		err := prog.Prepare(4096)
-		assert.NoError(t, err)
-
-		logger, _ := zap.NewDevelopment()
-		defer logger.Sync()
-
-		suggar := logger.Sugar()
-		var printed string
-
-		fncs := Fncs{
-			TracePrintk: func(vm *VM, format string, args ...interface{}) error {
-				printed = fmt.Sprintf(format, args...)
-				return nil
-			},
-		}
-
-		spec := &ebpf.CollectionSpec{
-			Programs: map[string]*ebpf.ProgramSpec{
-				"test/printk": {
-					Name:         "test/printk",
-					SectionName:  "test/printk",
-					Type:         ebpf.Kprobe,
-					Instructions: prog.Instructions(),
-				},
-			},
-		}
-
-		vm := NewVM(spec, Opts{Fncs: fncs, Logger: suggar})
-
-		var ctx StdContext
-		code, err := vm.RunProgram(&ctx, "test/printk")
-		assert.Zero(t, code)
-		assert.Nil(t, err)
-		assert.Equal(t, "ok", printed)
+		run(&prog, "ok")
 	})
 
 	t.Run("strcmp-static-ko", func(t *testing.T) {
 		var prog Program
 		editor := prog.Edit(ProgramEditorOpts{})
 
-		var1, _ := editor.NewVar("var1", "test123")
+		var1, _ := editor.NewVar("test123")
 
 		editor.IfThenElse(
 			editor.StrStaticCmp(var1, "test567"),
@@ -364,39 +271,52 @@ func TestEditor(t *testing.T) {
 
 		editor.Commit()
 
-		err := prog.Prepare(4096)
-		assert.NoError(t, err)
+		run(&prog, "ko")
+	})
 
-		logger, _ := zap.NewDevelopment()
-		defer logger.Sync()
+	t.Run("strcmp-ok", func(t *testing.T) {
+		var prog Program
+		editor := prog.Edit(ProgramEditorOpts{})
 
-		suggar := logger.Sugar()
-		var printed string
+		var1, _ := editor.NewVar("test123")
+		var2, _ := editor.NewVar("test123")
 
-		fncs := Fncs{
-			TracePrintk: func(vm *VM, format string, args ...interface{}) error {
-				printed = fmt.Sprintf(format, args...)
-				return nil
+		editor.IfThenElse(
+			editor.StrCmp(var1, var2, 30),
+			func() error {
+				return editor.Printk("ok")
 			},
-		}
-
-		spec := &ebpf.CollectionSpec{
-			Programs: map[string]*ebpf.ProgramSpec{
-				"test/printk": {
-					Name:         "test/printk",
-					SectionName:  "test/printk",
-					Type:         ebpf.Kprobe,
-					Instructions: prog.Instructions(),
-				},
+			func() error {
+				return editor.Printk("ko")
 			},
-		}
+		)
+		editor.Return(0)
 
-		vm := NewVM(spec, Opts{Fncs: fncs, Logger: suggar})
+		editor.Commit()
 
-		var ctx StdContext
-		code, err := vm.RunProgram(&ctx, "test/printk")
-		assert.Zero(t, code)
-		assert.Nil(t, err)
-		assert.Equal(t, "ko", printed)
+		run(&prog, "ok")
+	})
+
+	t.Run("strcmp-ko", func(t *testing.T) {
+		var prog Program
+		editor := prog.Edit(ProgramEditorOpts{})
+
+		var1, _ := editor.NewVar("test123")
+		var2, _ := editor.NewVar("test567")
+
+		editor.IfThenElse(
+			editor.StrCmp(var1, var2, 30),
+			func() error {
+				return editor.Printk("ok")
+			},
+			func() error {
+				return editor.Printk("ko")
+			},
+		)
+		editor.Return(0)
+
+		editor.Commit()
+
+		run(&prog, "ko")
 	})
 }
