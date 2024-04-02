@@ -18,6 +18,7 @@ package baloum
 
 import (
 	"bytes"
+	"errors"
 
 	"github.com/cilium/ebpf"
 )
@@ -41,4 +42,26 @@ func Bytes2String(data []byte) string {
 		return string(data)
 	}
 	return string(data[0:uint64(idx)])
+}
+
+func ToInt32(value interface{}) (int32, error) {
+	switch v := value.(type) {
+	case int8:
+		return int32(v), nil
+	case uint8:
+		return int32(v), nil
+	case int16:
+		return int32(v), nil
+	case uint16:
+		return int32(v), nil
+	case int32:
+		return int32(v), nil
+	case uint32:
+		return int32(v), nil
+	case int64:
+		return int32(v), nil
+	case uint64:
+		return int32(v), nil
+	}
+	return 0, errors.New("unknown type")
 }

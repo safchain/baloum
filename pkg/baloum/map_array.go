@@ -77,7 +77,15 @@ func (m *MapArrayStorage) Delete(key []byte) (bool, error) {
 }
 
 func (m *MapArrayStorage) Keys() ([][]byte, error) {
-	return nil, errors.New("operation not supported")
+	var keys [][]byte
+
+	for idx := range m.data {
+		key := make([]byte, 4)
+		ByteOrder.PutUint32(key, uint32(idx))
+		keys = append(keys, key)
+	}
+
+	return keys, nil
 }
 
 func (m *MapArrayStorage) Read() (<-chan []byte, error) {

@@ -35,6 +35,7 @@ const (
 	PrintStackCommand     DebugCommand = "ps"
 	PrintRegistersCommand DebugCommand = "pr"
 	PrintVariableCommand  DebugCommand = "pv"
+	PrintDataCommand      DebugCommand = "pd"
 	PrintMap              DebugCommand = "pm"
 	PrintCommand          DebugCommand = "p"
 	PrintBacktraceCommand DebugCommand = "bt"
@@ -103,7 +104,36 @@ func (d *Debugger) dumpBytes(bytes []byte, ascii bool) {
 }
 
 func (d *Debugger) dumpStack(vm *baloum.VM, args ...string) {
-	d.dumpBytes(vm.Stack(), len(args) > 0 && args[0] == "c")
+	ascii := len(args) > 0 && args[len(args)-1] == "c"
+	d.dumpBytes(vm.Stack(), ascii)
+}
+
+func (d *Debugger) printData(vm *baloum.VM, args ...string) {
+	if len(args) == 0 || args[0][0] != '@' {
+		fmt.Fprintf(os.Stderr, "invalid address\n")
+		return
+	}
+
+	els := strings.Split(args[0][1:], ":")
+	addr, err := strconv.Atoi(els[0])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "invalid address: %s\n", err)
+		return
+	}
+
+	kind := "uint32"
+	if len(els) > 1 {
+		kind = els[1]
+	}
+
+	switch kind {
+	case "uint32":
+		value, err := vm.GetUint32(uint64(addr))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "unable to get data: %s\n", err)
+		}
+		fmt.Printf("%s: %d\n", args[0], value)
+	}
 }
 
 func (d *Debugger) printMap(vm *baloum.VM, args ...string) {
@@ -120,7 +150,7 @@ func (d *Debugger) printMap(vm *baloum.VM, args ...string) {
 
 	it, err := _map.Iterator()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "map lookup error")
+		fmt.Fprintf(os.Stderr, "map lookup error: %s", err)
 		return
 	}
 
@@ -234,6 +264,9 @@ LOOP:
 		goto LOOP
 	case PrintVariableCommand:
 		d.printVariable(vm, args...)
+		goto LOOP
+	case PrintDataCommand:
+		d.printData(vm, args...)
 		goto LOOP
 	case PrintBacktraceCommand:
 		d.printBacktrace(vm)

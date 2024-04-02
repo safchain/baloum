@@ -47,43 +47,210 @@ type Program struct {
 	insts asm.Instructions
 }
 
+type RegisterAllocator struct {
+	available []asm.Register
+}
+
+func (r *RegisterAllocator) Alloc() (asm.Register, error) {
+	// TODO reverse order to keep R1, R2, R3 available as much as possible
+
+	if len(r.available) == 0 {
+		return 0, errors.New("no register available")
+	}
+
+	reg := r.available[0]
+	r.available = r.available[1:]
+	return reg, nil
+}
+
+func (r *RegisterAllocator) Alloc2() (asm.Register, asm.Register, error) {
+	reg1, err := r.Alloc()
+	if err != nil {
+		return 0, 0, err
+	}
+
+	reg2, err := r.Alloc()
+	if err != nil {
+		return 0, 0, err
+	}
+
+	return reg1, reg2, nil
+}
+
+func (r *RegisterAllocator) Free(regs ...asm.Register) {
+	for _, reg := range regs {
+		if reg > 3 && reg < 10 {
+			r.available = append([]asm.Register{reg}, r.available...)
+		}
+	}
+}
+
+func NewRegisterAllocator() *RegisterAllocator {
+	r := &RegisterAllocator{}
+
+	for reg := asm.R4; reg != asm.R10; reg++ {
+		r.available = append(r.available, reg)
+	}
+
+	return r
+}
+
 type VariableType int
 
 const (
 	Int8Type VariableType = iota
-	Uint8Type
+	UInt8Type
 	Int16Type
-	Uint16Type
+	UInt16Type
 	Int32Type
-	Uint32Type
+	UInt32Type
 	Int64Type
 	UInt64Type
-	PtrType
+	Int8PtrType
+	UInt8PtrType
+	Int16PtrType
+	UInt16PtrType
+	Int32PtrType
+	UInt32PtrType
+	Int64PtrType
+	UInt64PtrType
 )
 
-func (vr VariableType) Sizeof() asm.Size {
-	switch vr {
-	case Int8Type, Uint8Type:
+func (vt VariableType) IsPtr() bool {
+	return vt == UInt8PtrType || vt == UInt16PtrType || vt == UInt32PtrType || vt == UInt64PtrType
+}
+
+func (vt VariableType) Sizeof() asm.Size {
+	switch vt {
+	case Int8Type, UInt8Type:
 		return asm.Byte
-	case Int16Type, Uint16Type:
+	case Int16Type, UInt16Type:
 		return asm.Half
-	case Int32Type, Uint32Type:
+	case Int32Type, UInt32Type:
 		return asm.Word
 	case Int64Type, UInt64Type:
 		return asm.DWord
-	case PtrType:
+	}
+
+	if vt.IsPtr() {
 		return asm.DWord
 	}
+
 	return asm.InvalidSize
 }
 
 type Variable struct {
 	Type VariableType
 	Addr int16
+
+	// internals
+	pe *ProgramEditor
+}
+
+func (vr Variable) IsPtr() bool {
+	return vr.Type.IsPtr()
 }
 
 func (vr Variable) Sizeof() asm.Size {
 	return vr.Type.Sizeof()
+}
+
+func (vr Variable) Deref() (*Variable, error) {
+	var (
+		derefVar *Variable
+		err      error
+	)
+
+	switch vr.Type {
+	case Int8PtrType:
+		derefVar, err = vr.pe.NewNumberVar(Int8Type, int32(0))
+	case UInt8PtrType:
+		derefVar, err = vr.pe.NewNumberVar(UInt8Type, int32(0))
+	case Int16PtrType:
+		derefVar, err = vr.pe.NewNumberVar(Int16Type, int32(0))
+	case UInt16PtrType:
+		derefVar, err = vr.pe.NewNumberVar(UInt16Type, int32(0))
+	case Int32PtrType:
+		derefVar, err = vr.pe.NewNumberVar(Int32Type, int32(0))
+	case UInt32PtrType:
+		derefVar, err = vr.pe.NewNumberVar(UInt32Type, int32(0))
+	case Int64PtrType:
+		derefVar, err = vr.pe.NewNumberVar(Int64Type, int32(0))
+	case UInt64PtrType:
+		derefVar, err = vr.pe.NewNumberVar(UInt64Type, int32(0))
+	default:
+		return nil, errors.New("not a pointer")
+	}
+
+	reg1, reg2, err := vr.pe.regAlloc.Alloc2()
+	if err != nil {
+		return nil, err
+	}
+	defer vr.pe.regAlloc.Free(reg1, reg2)
+
+	vr.pe.insts = append(vr.pe.insts, asm.Instructions{
+		asm.LoadMem(reg1, asm.RFP, vr.Addr, vr.Sizeof()),
+		asm.LoadMem(reg2, reg1, 0, derefVar.Sizeof()),
+		asm.StoreMem(asm.RFP, derefVar.Addr, reg2, derefVar.Sizeof()),
+	}...)
+
+	return derefVar, nil
+}
+
+func (vr Variable) Ptr() (asm.Register, error) {
+	reg, err := vr.pe.regAlloc.Alloc()
+	if err != nil {
+		return 0, err
+	}
+
+	vr.pe.insts = append(vr.pe.insts, asm.Instructions{
+		asm.Mov.Reg(reg, asm.RFP),
+		asm.Add.Imm(reg, int32(vr.Addr)),
+	}...)
+
+	return reg, nil
+}
+
+func (vr Variable) PtrReg(reg asm.Register) {
+	vr.pe.insts = append(vr.pe.insts, asm.Instructions{
+		asm.Mov.Reg(reg, asm.RFP),
+		asm.Add.Imm(reg, int32(vr.Addr)),
+	}...)
+}
+
+func (vr Variable) Load(offset int) (asm.Register, error) {
+	regPtr, err := vr.pe.regAlloc.Alloc()
+	if err != nil {
+		return 0, err
+	}
+	defer vr.pe.regAlloc.Free(regPtr)
+
+	regVal, err := vr.pe.regAlloc.Alloc()
+	if err != nil {
+		return 0, err
+	}
+
+	vr.pe.insts = append(vr.pe.insts, asm.Instructions{
+		asm.Mov.Reg(regPtr, asm.RFP),
+		asm.LoadMem(regVal, regPtr, vr.Addr+int16(offset), vr.Sizeof()),
+	}...)
+
+	return regVal, nil
+}
+
+func (vr Variable) Store(reg asm.Register) error {
+	regVal, err := vr.pe.regAlloc.Alloc()
+	if err != nil {
+		return err
+	}
+	defer vr.pe.regAlloc.Free(regVal)
+
+	vr.pe.insts = append(vr.pe.insts, asm.Instructions{
+		asm.Mov.Reg(regVal, asm.RFP),
+		asm.StoreMem(regVal, int16(vr.Addr), reg, asm.DWord),
+	}...)
+
+	return nil
 }
 
 type ProgramEditor struct {
@@ -92,6 +259,7 @@ type ProgramEditor struct {
 	insts     asm.Instructions
 	blocks    []stackMemBlock
 	symbolIdx int
+	regAlloc  *RegisterAllocator
 }
 
 func (p *Program) Prepare(instLimit int) error {
@@ -183,26 +351,21 @@ func (p *Program) Edit(opts ProgramEditorOpts) *ProgramEditor {
 	opts.applyDefault()
 
 	return &ProgramEditor{
-		program: p,
-		opts:    opts,
+		program:  p,
+		opts:     opts,
+		regAlloc: NewRegisterAllocator(),
 	}
 }
 
 func (p *ProgramEditor) Commit() {
 	// relocate symbol
-	for i := 0; i != len(p.insts); i++ {
-		if symbol := p.insts[i].Symbol(); strings.HasSuffix(symbol, JumpSymbolType) {
-			p.insts[i] = p.insts[i].WithSymbol("")
-			p.insts[i+1] = p.insts[i+1].WithSymbol(symbol)
-			i++
+	for i := len(p.insts) - 1; i > 0; i-- {
+		if symbol := p.insts[i-1].Symbol(); strings.HasSuffix(symbol, JumpSymbolType) {
+			p.insts[i] = p.insts[i].WithSymbol(symbol)
+			p.insts[i-1] = p.insts[i-1].WithSymbol("")
 		}
 	}
-
 	p.program.insts = append(p.program.insts, p.insts...)
-
-	for _, inst := range p.program.insts {
-		fmt.Printf("%v [%s]\n", inst, inst.Symbol())
-	}
 }
 
 func (p *ProgramEditor) StackAlloc(size int16) (int16, error) {
@@ -381,23 +544,26 @@ func (p *ProgramEditor) Printk(format string, args ...interface{}) error {
 	// add arg using the type, either the direct value of doing a var resolution
 	addArg := func(reg asm.Register, arg interface{}) error {
 		switch arg := arg.(type) {
-		case int32:
-			p.insts = append(p.insts, asm.Mov.Imm(reg, int32(arg)))
 		case *Variable:
-			switch arg.Type {
-			case PtrType:
+			if arg.IsPtr() {
 				p.insts = append(p.insts,
 					asm.Mov.Reg(reg, asm.RFP),
 					asm.Add.Imm(reg, int32(arg.Addr)),
 				)
-			default:
+			} else {
 				p.insts = append(p.insts,
 					asm.LoadMem(reg, asm.RFP, arg.Addr, arg.Sizeof()),
 				)
 			}
 		case nil:
 		default:
-			return fmt.Errorf("unknown argument type %d", arg)
+			if v, err := ToInt32(arg); err == nil {
+				return fmt.Errorf("unknown argument type %v", arg)
+			} else {
+				p.insts = append(p.insts,
+					asm.Mov.Imm(reg, v),
+				)
+			}
 		}
 
 		return nil
@@ -421,27 +587,41 @@ func (p *ProgramEditor) Printk(format string, args ...interface{}) error {
 
 func (p *ProgramEditor) StrStaticCmp(var1 *Variable, str string) func(trueSym, falseSym string) error {
 	return func(trueSym, falseSym string) error {
-		if var1.Type != PtrType {
+		if !var1.IsPtr() {
 			return errors.New("invalid variable type")
 		}
 
 		size := int16(len(str))
 
-		p.insts = append(p.insts,
-			asm.Mov.Reg(asm.R1, asm.RFP),
-			asm.Add.Imm(asm.R1, int32(var1.Addr)),
+		var (
+			regPtr asm.Register
+			regVal asm.Register
+			err    error
 		)
+		defer p.regAlloc.Free(regPtr, regVal)
+
+		regPtr, err = var1.Ptr()
+		if err != nil {
+			return err
+		}
+
+		regVal, err = p.regAlloc.Alloc()
+		if err != nil {
+			return err
+		}
 
 		for i := int16(0); i != size; i++ {
 			p.insts = append(p.insts,
-				asm.LoadMem(asm.R2, asm.R1, i, asm.Byte),
-				asm.JNE.Imm(asm.R2, int32(str[i]), falseSym),
+				asm.LoadMem(regVal, regPtr, i, asm.Byte),
+				asm.JNE.Imm(regVal, int32(str[i]), falseSym),
 			)
 		}
 
+		// TODO add PtrInst and LoadInst to Variable to ease the development
+
 		p.insts = append(p.insts,
-			asm.LoadMem(asm.R2, asm.RFP, var1.Addr+size, asm.Byte),
-			asm.JEq.Imm(asm.R2, 0, trueSym),
+			asm.LoadMem(regVal, regPtr, size, asm.Byte),
+			asm.JEq.Imm(regVal, 0, trueSym),
 			asm.Ja.Label(falseSym),
 		)
 
@@ -451,30 +631,46 @@ func (p *ProgramEditor) StrStaticCmp(var1 *Variable, str string) func(trueSym, f
 
 func (p *ProgramEditor) StrCmp(var1 *Variable, var2 *Variable, unroll int) func(trueSym, falseSym string) error {
 	return func(trueSym string, falseSym string) error {
-		if var1.Type != PtrType || var2.Type != PtrType {
+		if !var1.IsPtr() || !var2.IsPtr() {
 			return errors.New("invalid variable type")
 		}
 
-		p.insts = append(p.insts,
-			asm.Mov.Reg(asm.R2, asm.RFP),
-			asm.Mov.Reg(asm.R3, asm.RFP),
-			asm.Add.Imm(asm.R2, int32(var1.Addr)),
-			asm.Add.Imm(asm.R3, int32(var2.Addr)),
+		var (
+			regPtr1, regVal1 asm.Register
+			regPtr2, regVal2 asm.Register
+			err              error
 		)
+		defer p.regAlloc.Free(regPtr1, regVal1, regPtr2, regVal2)
+
+		regPtr1, err = var1.Ptr()
+		if err != nil {
+			return err
+		}
+
+		regPtr2, err = var2.Ptr()
+		if err != nil {
+			return err
+		}
+
+		regVal1, regVal2, err = p.regAlloc.Alloc2()
+		if err != nil {
+			return err
+		}
 
 		addr1, addr2 := var1.Addr, var2.Addr
 
 		for i := 0; i != unroll; i++ {
+			// stack overflow
 			if addr1 == 0 || addr2 == 0 {
 				break
 			}
 
 			p.insts = append(p.insts,
-				asm.LoadMem(asm.R4, asm.R2, int16(i), asm.Byte),
-				asm.LoadMem(asm.R5, asm.R3, int16(i), asm.Byte),
-				asm.JNE.Reg(asm.R4, asm.R5, falseSym),
-				asm.Or.Reg(asm.R4, asm.R5),
-				asm.JEq.Imm(asm.R4, int32(0), trueSym),
+				asm.LoadMem(regVal1, regPtr1, int16(i), asm.Byte),
+				asm.LoadMem(regVal2, regPtr2, int16(i), asm.Byte),
+				asm.JNE.Reg(regVal1, regVal2, falseSym),
+				asm.Or.Reg(regVal1, regVal2),
+				asm.JEq.Imm(regVal1, int32(0), trueSym),
 			)
 			addr1++
 			addr2++
@@ -502,6 +698,105 @@ func (p *ProgramEditor) False(_, falseSym string) error {
 	return nil
 }
 
+func (p *ProgramEditor) IsNull(var1 interface{}) func(trueSym, falseSym string) error {
+	return p.Equal(var1, uint32(0))
+}
+
+func (p *ProgramEditor) Equal(var1 interface{}, var2 interface{}) func(trueSym, falseSym string) error {
+	return func(trueSym string, falseSym string) error {
+		var (
+			regVal1 asm.Register
+			regVal2 asm.Register
+			err     error
+		)
+		defer p.regAlloc.Free(regVal1, regVal2)
+
+		switch v1 := var1.(type) {
+		case *Variable:
+			switch v2 := var2.(type) {
+			case *Variable:
+				regVal1, err = v1.Load(0)
+				if err != nil {
+					return err
+				}
+
+				regVal2, err = v2.Load(0)
+				if err != nil {
+					return err
+				}
+
+				p.insts = append(p.insts,
+					asm.JEq.Reg(regVal1, regVal2, trueSym),
+					asm.Ja.Label(falseSym),
+				)
+			case int8, uint8, int16, uint16, int32, uint32, int64, uint64:
+				val2, err := ToInt32(v2)
+				if err != nil {
+					return err
+				}
+
+				regVal1, err = v1.Load(0)
+				if err != nil {
+					return err
+				}
+
+				p.insts = append(p.insts,
+					asm.JEq.Imm(regVal1, val2, trueSym),
+					asm.Ja.Label(falseSym),
+				)
+			default:
+				return errors.New("unknown type")
+			}
+		case int8, uint8, int16, uint16, int32, uint32, int64, uint64:
+			val1, err := ToInt32(v1)
+			if err != nil {
+				return err
+			}
+
+			switch v2 := var2.(type) {
+			case *Variable:
+				regVal2, err = v2.Load(0)
+				if err != nil {
+					return err
+				}
+
+				p.insts = append(p.insts,
+					asm.JEq.Imm(regVal2, val1, trueSym),
+					asm.Ja.Label(falseSym),
+				)
+			case int8, uint8, int16, uint16, int32, uint32, int64, uint64:
+				val2, err := ToInt32(v2)
+				if err != nil {
+					return err
+				}
+
+				p.insts = append(p.insts,
+					asm.Mov.Imm(asm.R2, val1),
+					asm.JEq.Imm(asm.R2, val2, trueSym),
+					asm.Ja.Label(falseSym),
+				)
+			default:
+				return errors.New("unknown type")
+			}
+		default:
+			return errors.New("unknown type")
+		}
+
+		return nil
+	}
+}
+
+func (p *ProgramEditor) MapLookup(mapName string, key *Variable, value *Variable) error {
+	key.PtrReg(asm.R2)
+
+	p.insts = append(p.insts,
+		asm.LoadMapPtr(asm.R1, 0).WithReference(mapName),
+		asm.FnMapLookupElem.Call(),
+	)
+
+	return value.Store(asm.R0)
+}
+
 func (p *ProgramEditor) lastInstIdx() int {
 	return len(p.insts) - 1
 }
@@ -515,19 +810,22 @@ func (p *ProgramEditor) IfThenElse(cond func(trueSym, falseSym string) error, th
 	)
 
 	if els != nil {
-		falseSym = "endthen-" + symSuffix
+		falseSym = "else-" + symSuffix
 	}
 
 	if err := cond(trueSym, falseSym); err != nil {
 		return err
 	}
-
 	p.insts[p.lastInstIdx()] = p.insts[p.lastInstIdx()].WithSymbol(trueSym)
-	if err := then(); err != nil {
-		return err
+
+	if then != nil {
+		if err := then(); err != nil {
+			return err
+		}
 	}
+
 	p.insts = append(p.insts,
-		asm.Ja.Label("endif-"+symSuffix).WithSymbol("endthen-"+symSuffix),
+		asm.Ja.Label("endif-"+symSuffix).WithSymbol("else-"+symSuffix),
 	)
 
 	if els != nil {
@@ -541,15 +839,21 @@ func (p *ProgramEditor) IfThenElse(cond func(trueSym, falseSym string) error, th
 }
 
 func (p *ProgramEditor) NewNumberVar(kind VariableType, value int32) (*Variable, error) {
-	addr, err := p.StackAlloc(int16(asm.Word.Sizeof()))
+	addr, err := p.StackAlloc(int16(asm.DWord.Sizeof()))
 	if err != nil {
 		return nil, err
 	}
-	variable := &Variable{Type: kind, Addr: addr}
+	variable := &Variable{Type: kind, Addr: addr, pe: p}
+
+	regValue, err := p.regAlloc.Alloc()
+	if err != nil {
+		return nil, err
+	}
+	defer p.regAlloc.Free(regValue)
 
 	p.insts = append(p.insts,
-		asm.Mov.Imm(asm.R1, value),
-		asm.StoreMem(asm.RFP, addr, asm.R1, asm.Word),
+		asm.Mov.Imm(regValue, value),
+		asm.StoreMem(asm.RFP, addr, regValue, asm.DWord),
 	)
 
 	return variable, nil
@@ -560,12 +864,23 @@ func (p *ProgramEditor) NewByteArrayVar(value []byte) (*Variable, error) {
 	if err != nil {
 		return nil, err
 	}
-	variable := &Variable{Type: PtrType, Addr: addr}
-	//p.vars[name] = variable
+	variable := &Variable{Type: UInt8PtrType, Addr: addr, pe: p}
 
 	p.insts = append(p.insts, insts...)
 
 	return variable, nil
+}
+
+func (p *ProgramEditor) NewPtrVar(kind VariableType) (*Variable, error) {
+	if !kind.IsPtr() {
+		return nil, errors.New("not a pointer type")
+	}
+
+	addr, err := p.StackAlloc(int16(asm.DWord.Sizeof()))
+	if err != nil {
+		return nil, err
+	}
+	return &Variable{Type: kind, Addr: addr, pe: p}, nil
 }
 
 func (p *ProgramEditor) NewVar(value interface{}) (*Variable, error) {
@@ -573,15 +888,15 @@ func (p *ProgramEditor) NewVar(value interface{}) (*Variable, error) {
 	case int8:
 		return p.NewNumberVar(Int8Type, int32(v))
 	case uint8:
-		return p.NewNumberVar(Uint8Type, int32(v))
+		return p.NewNumberVar(UInt8Type, int32(v))
 	case int16:
 		return p.NewNumberVar(Int16Type, int32(v))
 	case uint16:
-		return p.NewNumberVar(Uint16Type, int32(v))
+		return p.NewNumberVar(UInt16Type, int32(v))
 	case int32:
 		return p.NewNumberVar(Int32Type, int32(v))
 	case uint32:
-		return p.NewNumberVar(Uint32Type, int32(v))
+		return p.NewNumberVar(UInt32Type, int32(v))
 	case int64:
 		// TODO(safchain)
 	case uint64:

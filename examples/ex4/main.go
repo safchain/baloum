@@ -38,37 +38,16 @@ func run(test bool) {
 	var prog baloum.Program
 	editor := prog.Edit(baloum.ProgramEditorOpts{})
 
-	var1, err := editor.NewVar(uint32(55))
-	if err != nil {
-		suggar.Panicf("unexpected error: %v", err)
-	}
+	key, _ := editor.NewVar(uint32(1))
+	value, _ := editor.NewPtrVar(baloum.UInt32PtrType)
 
-	var2, err := editor.NewVar(uint32(88))
-	if err != nil {
-		suggar.Panicf("unexpected error: %v", err)
-	}
-
-	var3, err := editor.NewVar("test123")
-	if err != nil {
-		suggar.Panicf("unexpected error: %v", err)
-	}
-
-	var4, err := editor.NewVar("test123")
-	if err != nil {
-		suggar.Panicf("unexpected error: %v", err)
-	}
-
-	err = editor.IfThenElse(
-		editor.StrCmp(var3, var4, 30),
-		func() error {
-			return editor.Printk(">> %d %d %s", var1, var2, var3)
-		}, func() error {
-			return editor.Printk(">>> else")
-		})
-
-	if err != nil {
-		suggar.Panicf("unexpected error: %v", err)
-	}
+	editor.MapLookup("map2", key, value)
+	editor.IfThenElse(editor.IsNull(value), func() error {
+		return nil
+	}, func() error {
+		deref, _ := value.Deref(editor)
+		return editor.Printk("value: %d", deref)
+	})
 
 	editor.Return(0)
 
@@ -86,6 +65,22 @@ func run(test bool) {
 				Type:         ebpf.Kprobe,
 				Instructions: prog.Instructions(),
 				License:      "GPL",
+			},
+		},
+		Maps: map[string]*ebpf.MapSpec{
+			"map1": {
+				Name:       "map1",
+				Type:       ebpf.Array,
+				KeySize:    4,
+				ValueSize:  4,
+				MaxEntries: 10,
+			},
+			"map2": {
+				Name:       "map2",
+				Type:       ebpf.Array,
+				KeySize:    4,
+				ValueSize:  4,
+				MaxEntries: 10,
 			},
 		},
 	}
@@ -115,6 +110,10 @@ func run(test bool) {
 		}
 
 		vm := baloum.NewVM(spec, baloum.Opts{Fncs: fncs, Observer: debugger})
+		vm.LoadMap("map1")
+		vm.LoadMap("map2")
+
+		vm.Map("map2").Update(uint32(1), uint32(44), baloum.BPF_ANY)
 
 		var ctx baloum.StdContext
 

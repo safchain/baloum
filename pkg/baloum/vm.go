@@ -116,7 +116,7 @@ func (vm *VM) GetBytes(addr uint64, size uint64) ([]byte, error) {
 	}
 
 	if int(size) > len(bytes[addr:]) {
-		return nil, errors.New("out of bound")
+		return nil, errors.New("get bytes out of bound")
 	}
 
 	return bytes[addr : addr+size], nil
@@ -172,6 +172,7 @@ func (vm *VM) SetUint64(addr uint64, value uint64) error {
 	if err != nil {
 		return err
 	}
+
 	ByteOrder.PutUint64(bytes, value)
 
 	return nil
