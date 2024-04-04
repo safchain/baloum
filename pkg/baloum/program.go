@@ -358,6 +358,12 @@ func (p *Program) Edit(opts ProgramEditorOpts) *ProgramEditor {
 }
 
 func (p *ProgramEditor) Commit() {
+	// TODO optimise :
+	// MovReg dst: r4 src: rfp (8)
+	// StXMemDW dst: r4 src: r0 off: -24 imm: 0 (8)
+	// MovReg dst: r4 src: rfp (8)
+	// LdXMemW dst: r5 src: r4 off: -24 imm: 0 (8)
+
 	// relocate symbol
 	for i := len(p.insts) - 1; i > 0; i-- {
 		if symbol := p.insts[i-1].Symbol(); strings.HasSuffix(symbol, JumpSymbolType) {
@@ -702,6 +708,17 @@ func (p *ProgramEditor) IsNull(var1 interface{}) func(trueSym, falseSym string) 
 	return p.Equal(var1, uint32(0))
 }
 
+func (p *ProgramEditor) IsNotNull(var1 interface{}) func(trueSym, falseSym string) error {
+	return p.NotEqual(var1, uint32(0))
+}
+
+func (p *ProgramEditor) NotEqual(var1 interface{}, var2 interface{}) func(trueSym, falseSym string) error {
+	fnc := p.Equal(var1, var2)
+	return func(trueSym, falseSym string) error {
+		return fnc(falseSym, trueSym)
+	}
+}
+
 func (p *ProgramEditor) Equal(var1 interface{}, var2 interface{}) func(trueSym, falseSym string) error {
 	return func(trueSym string, falseSym string) error {
 		var (
@@ -787,6 +804,10 @@ func (p *ProgramEditor) Equal(var1 interface{}, var2 interface{}) func(trueSym, 
 }
 
 func (p *ProgramEditor) MapLookup(mapName string, key *Variable, value *Variable) error {
+	if !value.IsPtr() {
+		return errors.New("value is not a pointer type")
+	}
+
 	key.PtrReg(asm.R2)
 
 	p.insts = append(p.insts,
@@ -795,6 +816,22 @@ func (p *ProgramEditor) MapLookup(mapName string, key *Variable, value *Variable
 	)
 
 	return value.Store(asm.R0)
+}
+
+func (p *ProgramEditor) MapUpdate(mapName string, key *Variable, value *Variable, ret *Variable, kind MapUpdateType) error {
+	key.PtrReg(asm.R2)
+	value.PtrReg(asm.R3)
+
+	p.insts = append(p.insts,
+		asm.Mov.Imm(asm.R4, int32(kind)),
+		asm.LoadMapPtr(asm.R1, 0).WithReference(mapName),
+		asm.FnMapUpdateElem.Call(),
+	)
+
+	if ret != nil {
+		return ret.Store(asm.R0)
+	}
+	return nil
 }
 
 func (p *ProgramEditor) lastInstIdx() int {

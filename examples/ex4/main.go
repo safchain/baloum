@@ -39,15 +39,18 @@ func run(test bool) {
 	editor := prog.Edit(baloum.ProgramEditorOpts{})
 
 	key, _ := editor.NewVar(uint32(1))
-	value, _ := editor.NewPtrVar(baloum.UInt32PtrType)
+	value, _ := editor.NewVar(uint32(77))
+	ret, _ := editor.NewVar(uint32(0))
 
-	editor.MapLookup("map2", key, value)
-	editor.IfThenElse(editor.IsNull(value), func() error {
-		return nil
-	}, func() error {
-		deref, _ := value.Deref(editor)
-		return editor.Printk("value: %d", deref)
-	})
+	editor.MapUpdate("map2", key, value, ret, baloum.BPF_ANY)
+
+	valuePtr, _ := editor.NewPtrVar(baloum.UInt32PtrType)
+
+	editor.MapLookup("map2", key, valuePtr)
+	editor.IfThenElse(editor.IsNotNull(valuePtr), func() error {
+		value, _ = valuePtr.Deref()
+		return editor.Printk("value: %d", value)
+	}, nil)
 
 	editor.Return(0)
 

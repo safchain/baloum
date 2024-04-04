@@ -599,12 +599,12 @@ func TestEditor(t *testing.T) {
 		editor := prog.Edit(ProgramEditorOpts{})
 
 		key, _ := editor.NewVar(uint32(1))
-		value, _ := editor.NewPtrVar(UInt32PtrType)
+		valuePtr, _ := editor.NewPtrVar(UInt32PtrType)
 
-		editor.MapLookup("map1", key, value)
+		editor.MapLookup("map1", key, valuePtr)
 
-		deref, _ := value.Deref()
-		editor.Printk("value: %d", deref)
+		value, _ := valuePtr.Deref()
+		editor.Printk("value: %d", value)
 
 		editor.Return(0)
 
@@ -616,6 +616,37 @@ func TestEditor(t *testing.T) {
 			assert.Nil(t, err)
 		}, func(_ *VM, output string) {
 			assert.Equal(t, "value: 44", output)
+		})
+	})
+
+	t.Run("map-update", func(t *testing.T) {
+		var prog Program
+		editor := prog.Edit(ProgramEditorOpts{})
+
+		key, _ := editor.NewVar(uint32(2))
+		value, _ := editor.NewVar(uint32(66))
+		ret, _ := editor.NewVar(int32(-1))
+
+		editor.MapUpdate("map1", key, value, ret, BPF_ANY)
+		editor.IfThenElse(editor.NotEqual(ret, uint32(0)),
+			func() error {
+				editor.Return(0)
+				return nil
+			}, nil)
+
+		valuePtr, _ := editor.NewPtrVar(UInt32PtrType)
+		editor.MapLookup("map1", key, valuePtr)
+
+		value, _ = valuePtr.Deref()
+		editor.Printk("value: %d", value)
+
+		editor.Return(0)
+
+		editor.Commit()
+
+		run(&prog, func(vm *VM) {
+		}, func(_ *VM, output string) {
+			assert.Equal(t, "value: 66", output)
 		})
 	})
 }
