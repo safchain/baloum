@@ -27,76 +27,76 @@ import (
 
 func TestBuilderStack(t *testing.T) {
 	t.Run("success1", func(t *testing.T) {
-		var editor ProgramBuilder
+		builder := NewProgramBuilder(nil, ProgramBuilderOpts{})
 
-		addr, err := editor.StackAlloc(512)
+		addr, err := builder.StackAlloc(512)
 		assert.Nil(t, err)
 		assert.Equal(t, int16(-512), addr)
 	})
 
 	t.Run("full-one-block", func(t *testing.T) {
-		var editor ProgramBuilder
+		builder := NewProgramBuilder(nil, ProgramBuilderOpts{})
 
-		addr, err := editor.StackAlloc(512)
+		addr, err := builder.StackAlloc(512)
 		assert.Nil(t, err)
 		assert.Equal(t, int16(-512), addr)
 
-		_, err = editor.StackAlloc(1)
+		_, err = builder.StackAlloc(1)
 		assert.NotNil(t, err)
 	})
 
 	t.Run("one-block-reuse", func(t *testing.T) {
-		var editor ProgramBuilder
+		builder := NewProgramBuilder(nil, ProgramBuilderOpts{})
 
-		addr, err := editor.StackAlloc(512)
+		addr, err := builder.StackAlloc(512)
 		assert.Nil(t, err)
 		assert.Equal(t, int16(-512), addr)
 
-		editor.StackFree(addr)
+		builder.StackFree(addr)
 
-		addr, err = editor.StackAlloc(512)
+		addr, err = builder.StackAlloc(512)
 		assert.Nil(t, err)
 		assert.Equal(t, int16(-512), addr)
 	})
 
 	t.Run("two-blocks", func(t *testing.T) {
-		var editor ProgramBuilder
+		builder := NewProgramBuilder(nil, ProgramBuilderOpts{})
 
-		addr, err := editor.StackAlloc(256)
+		addr, err := builder.StackAlloc(256)
 		assert.Nil(t, err)
 		assert.Equal(t, int16(-256), addr)
 
-		addr, err = editor.StackAlloc(256)
+		addr, err = builder.StackAlloc(256)
 		assert.Nil(t, err)
 		assert.Equal(t, int16(-512), addr)
 	})
 
 	t.Run("three-blocks-with-free", func(t *testing.T) {
-		var editor ProgramBuilder
+		builder := NewProgramBuilder(nil, ProgramBuilderOpts{})
 
-		addr1, err := editor.StackAlloc(256)
+		addr1, err := builder.StackAlloc(256)
 		assert.Nil(t, err)
 		assert.Equal(t, int16(-256), addr1)
 
-		addr2, err := editor.StackAlloc(256)
+		addr2, err := builder.StackAlloc(256)
 		assert.Nil(t, err)
 		assert.Equal(t, int16(-512), addr2)
 
-		editor.StackFree(addr1)
+		builder.StackFree(addr1)
 
-		addr3, err := editor.StackAlloc(128)
+		addr3, err := builder.StackAlloc(128)
 		assert.Nil(t, err)
 		assert.Equal(t, int16(-128), addr3)
 
-		addr4, err := editor.StackAlloc(32)
+		addr4, err := builder.StackAlloc(32)
 		assert.Nil(t, err)
 		assert.Equal(t, int16(-160), addr4)
 
-		addr5, err := editor.StackAlloc(32)
+		addr5, err := builder.StackAlloc(32)
 		assert.Nil(t, err)
 		assert.Equal(t, int16(-192), addr5)
 
-		_, err = editor.StackAlloc(65)
+		_, err = builder.StackAlloc(65)
 		assert.NotNil(t, err)
 	})
 }
@@ -161,15 +161,15 @@ func TestBuilderInsts(t *testing.T) {
 
 	t.Run("printk", func(t *testing.T) {
 		var prog Program
-		editor := prog.Edit(ProgramBuilderOpts{})
+		builder := prog.Edit(ProgramBuilderOpts{})
 
-		var1, _ := editor.NewVar(uint32(55))
-		var2, _ := editor.NewVar(uint32(88))
-		var3, _ := editor.NewVar("test")
-		editor.Printk("this is a printk test, values: %d %d %s", var1, var2, var3)
-		editor.Return(0)
+		var1, _ := builder.NewVar(uint32(55))
+		var2, _ := builder.NewVar(uint32(88))
+		var3, _ := builder.NewVar("test")
+		builder.Printk("this is a printk test, values: %d %d %s", var1, var2, var3)
+		builder.Return(0)
 
-		editor.Commit()
+		builder.Commit()
 
 		run(&prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "this is a printk test, values: 55 88 test", output)
@@ -178,20 +178,20 @@ func TestBuilderInsts(t *testing.T) {
 
 	t.Run("if-then-else-ok", func(t *testing.T) {
 		var prog Program
-		editor := prog.Edit(ProgramBuilderOpts{})
+		builder := prog.Edit(ProgramBuilderOpts{})
 
-		editor.IfThenElse(
-			editor.True(),
+		builder.IfThenElse(
+			builder.True(),
 			func() error {
-				return editor.Printk("ok")
+				return builder.Printk("ok")
 			},
 			func() error {
-				return editor.Printk("ko")
+				return builder.Printk("ko")
 			},
 		)
-		editor.Return(0)
+		builder.Return(0)
 
-		editor.Commit()
+		builder.Commit()
 
 		run(&prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
@@ -200,20 +200,20 @@ func TestBuilderInsts(t *testing.T) {
 
 	t.Run("if-then-else-ko", func(t *testing.T) {
 		var prog Program
-		editor := prog.Edit(ProgramBuilderOpts{})
+		builder := prog.Edit(ProgramBuilderOpts{})
 
-		editor.IfThenElse(
-			editor.False(),
+		builder.IfThenElse(
+			builder.False(),
 			func() error {
-				return editor.Printk("ok")
+				return builder.Printk("ok")
 			},
 			func() error {
-				return editor.Printk("ko")
+				return builder.Printk("ko")
 			},
 		)
-		editor.Return(0)
+		builder.Return(0)
 
-		editor.Commit()
+		builder.Commit()
 
 		run(&prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
@@ -222,20 +222,20 @@ func TestBuilderInsts(t *testing.T) {
 
 	t.Run("if-then-else-empty-then-1", func(t *testing.T) {
 		var prog Program
-		editor := prog.Edit(ProgramBuilderOpts{})
+		builder := prog.Edit(ProgramBuilderOpts{})
 
-		editor.IfThenElse(
-			editor.True(),
+		builder.IfThenElse(
+			builder.True(),
 			func() error {
 				return nil
 			},
 			func() error {
-				return editor.Printk("ko")
+				return builder.Printk("ko")
 			},
 		)
-		editor.Return(0)
+		builder.Return(0)
 
-		editor.Commit()
+		builder.Commit()
 
 		run(&prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "", output)
@@ -244,20 +244,20 @@ func TestBuilderInsts(t *testing.T) {
 
 	t.Run("if-then-else-empty-then-2", func(t *testing.T) {
 		var prog Program
-		editor := prog.Edit(ProgramBuilderOpts{})
+		builder := prog.Edit(ProgramBuilderOpts{})
 
-		editor.IfThenElse(
-			editor.False(),
+		builder.IfThenElse(
+			builder.False(),
 			func() error {
 				return nil
 			},
 			func() error {
-				return editor.Printk("ko")
+				return builder.Printk("ko")
 			},
 		)
-		editor.Return(0)
+		builder.Return(0)
 
-		editor.Commit()
+		builder.Commit()
 
 		run(&prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
@@ -266,10 +266,10 @@ func TestBuilderInsts(t *testing.T) {
 
 	t.Run("if-then-else-empty", func(t *testing.T) {
 		var prog Program
-		editor := prog.Edit(ProgramBuilderOpts{})
+		builder := prog.Edit(ProgramBuilderOpts{})
 
-		editor.IfThenElse(
-			editor.True(),
+		builder.IfThenElse(
+			builder.True(),
 			func() error {
 				return nil
 			},
@@ -277,9 +277,9 @@ func TestBuilderInsts(t *testing.T) {
 				return nil
 			},
 		)
-		editor.Return(0)
+		builder.Return(0)
 
-		editor.Commit()
+		builder.Commit()
 
 		run(&prog, nil, func(_ *VM, output string) {
 		})
@@ -287,20 +287,20 @@ func TestBuilderInsts(t *testing.T) {
 
 	t.Run("if-then-else-no-else", func(t *testing.T) {
 		var prog Program
-		editor := prog.Edit(ProgramBuilderOpts{})
+		builder := prog.Edit(ProgramBuilderOpts{})
 
-		editor.IfThenElse(
-			editor.True(),
+		builder.IfThenElse(
+			builder.True(),
 			func() error {
-				return editor.Printk("ok")
+				return builder.Printk("ok")
 			},
 			func() error {
 				return nil
 			},
 		)
-		editor.Return(0)
+		builder.Return(0)
 
-		editor.Commit()
+		builder.Commit()
 
 		run(&prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
@@ -309,26 +309,26 @@ func TestBuilderInsts(t *testing.T) {
 
 	t.Run("if-then-else-nested-ok", func(t *testing.T) {
 		var prog Program
-		editor := prog.Edit(ProgramBuilderOpts{})
+		builder := prog.Edit(ProgramBuilderOpts{})
 
-		editor.IfThenElse(
-			editor.True(),
+		builder.IfThenElse(
+			builder.True(),
 			func() error {
-				return editor.IfThenElse(
-					editor.True(),
+				return builder.IfThenElse(
+					builder.True(),
 					func() error {
-						return editor.Printk("ok")
+						return builder.Printk("ok")
 					},
 					nil,
 				)
 			},
 			func() error {
-				return editor.Printk("ko")
+				return builder.Printk("ko")
 			},
 		)
-		editor.Return(0)
+		builder.Return(0)
 
-		editor.Commit()
+		builder.Commit()
 
 		run(&prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
@@ -337,28 +337,28 @@ func TestBuilderInsts(t *testing.T) {
 
 	t.Run("if-then-else-nested-ko", func(t *testing.T) {
 		var prog Program
-		editor := prog.Edit(ProgramBuilderOpts{})
+		builder := prog.Edit(ProgramBuilderOpts{})
 
-		editor.IfThenElse(
-			editor.True(),
+		builder.IfThenElse(
+			builder.True(),
 			func() error {
-				return editor.IfThenElse(
-					editor.False(),
+				return builder.IfThenElse(
+					builder.False(),
 					func() error {
-						return editor.Printk("ok")
+						return builder.Printk("ok")
 					},
 					func() error {
-						return editor.Printk("ko")
+						return builder.Printk("ko")
 					},
 				)
 			},
 			func() error {
-				return editor.Printk("no-called")
+				return builder.Printk("no-called")
 			},
 		)
-		editor.Return(0)
+		builder.Return(0)
 
-		editor.Commit()
+		builder.Commit()
 
 		run(&prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
@@ -367,22 +367,22 @@ func TestBuilderInsts(t *testing.T) {
 
 	t.Run("strcmp-static-ok", func(t *testing.T) {
 		var prog Program
-		editor := prog.Edit(ProgramBuilderOpts{})
+		builder := prog.Edit(ProgramBuilderOpts{})
 
-		var1, _ := editor.NewVar("test123")
+		var1, _ := builder.NewVar("test123")
 
-		editor.IfThenElse(
-			editor.StrStaticCmp(var1, "test123"),
+		builder.IfThenElse(
+			builder.StrStaticCmp(var1, "test123"),
 			func() error {
-				return editor.Printk("ok")
+				return builder.Printk("ok")
 			},
 			func() error {
-				return editor.Printk("ko")
+				return builder.Printk("ko")
 			},
 		)
-		editor.Return(0)
+		builder.Return(0)
 
-		editor.Commit()
+		builder.Commit()
 
 		run(&prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
@@ -391,22 +391,22 @@ func TestBuilderInsts(t *testing.T) {
 
 	t.Run("strcmp-static-ko", func(t *testing.T) {
 		var prog Program
-		editor := prog.Edit(ProgramBuilderOpts{})
+		builder := prog.Edit(ProgramBuilderOpts{})
 
-		var1, _ := editor.NewVar("test123")
+		var1, _ := builder.NewVar("test123")
 
-		editor.IfThenElse(
-			editor.StrStaticCmp(var1, "test567"),
+		builder.IfThenElse(
+			builder.StrStaticCmp(var1, "test567"),
 			func() error {
-				return editor.Printk("ok")
+				return builder.Printk("ok")
 			},
 			func() error {
-				return editor.Printk("ko")
+				return builder.Printk("ko")
 			},
 		)
-		editor.Return(0)
+		builder.Return(0)
 
-		editor.Commit()
+		builder.Commit()
 
 		run(&prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
@@ -415,23 +415,23 @@ func TestBuilderInsts(t *testing.T) {
 
 	t.Run("strcmp-ok", func(t *testing.T) {
 		var prog Program
-		editor := prog.Edit(ProgramBuilderOpts{})
+		builder := prog.Edit(ProgramBuilderOpts{})
 
-		var1, _ := editor.NewVar("test123")
-		var2, _ := editor.NewVar("test123")
+		var1, _ := builder.NewVar("test123")
+		var2, _ := builder.NewVar("test123")
 
-		editor.IfThenElse(
-			editor.StrCmp(var1, var2, 30),
+		builder.IfThenElse(
+			builder.StrCmp(var1, var2, 30),
 			func() error {
-				return editor.Printk("ok")
+				return builder.Printk("ok")
 			},
 			func() error {
-				return editor.Printk("ko")
+				return builder.Printk("ko")
 			},
 		)
-		editor.Return(0)
+		builder.Return(0)
 
-		editor.Commit()
+		builder.Commit()
 
 		run(&prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
@@ -440,23 +440,23 @@ func TestBuilderInsts(t *testing.T) {
 
 	t.Run("strcmp-ko", func(t *testing.T) {
 		var prog Program
-		editor := prog.Edit(ProgramBuilderOpts{})
+		builder := prog.Edit(ProgramBuilderOpts{})
 
-		var1, _ := editor.NewVar("test123")
-		var2, _ := editor.NewVar("test567")
+		var1, _ := builder.NewVar("test123")
+		var2, _ := builder.NewVar("test567")
 
-		editor.IfThenElse(
-			editor.StrCmp(var1, var2, 30),
+		builder.IfThenElse(
+			builder.StrCmp(var1, var2, 30),
 			func() error {
-				return editor.Printk("ok")
+				return builder.Printk("ok")
 			},
 			func() error {
-				return editor.Printk("ko")
+				return builder.Printk("ko")
 			},
 		)
-		editor.Return(0)
+		builder.Return(0)
 
-		editor.Commit()
+		builder.Commit()
 
 		run(&prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
@@ -465,23 +465,23 @@ func TestBuilderInsts(t *testing.T) {
 
 	t.Run("equal-ok-1", func(t *testing.T) {
 		var prog Program
-		editor := prog.Edit(ProgramBuilderOpts{})
+		builder := prog.Edit(ProgramBuilderOpts{})
 
-		var1, _ := editor.NewVar(uint32(44))
-		var2, _ := editor.NewVar(uint32(44))
+		var1, _ := builder.NewVar(uint32(44))
+		var2, _ := builder.NewVar(uint32(44))
 
-		editor.IfThenElse(
-			editor.Equal(var1, var2),
+		builder.IfThenElse(
+			builder.Equal(var1, var2),
 			func() error {
-				return editor.Printk("ok")
+				return builder.Printk("ok")
 			},
 			func() error {
-				return editor.Printk("ko")
+				return builder.Printk("ko")
 			},
 		)
-		editor.Return(0)
+		builder.Return(0)
 
-		editor.Commit()
+		builder.Commit()
 
 		run(&prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
@@ -490,22 +490,22 @@ func TestBuilderInsts(t *testing.T) {
 
 	t.Run("equal-ok-2", func(t *testing.T) {
 		var prog Program
-		editor := prog.Edit(ProgramBuilderOpts{})
+		builder := prog.Edit(ProgramBuilderOpts{})
 
-		var1, _ := editor.NewVar(uint32(44))
+		var1, _ := builder.NewVar(uint32(44))
 
-		editor.IfThenElse(
-			editor.Equal(var1, uint32(44)),
+		builder.IfThenElse(
+			builder.Equal(var1, uint32(44)),
 			func() error {
-				return editor.Printk("ok")
+				return builder.Printk("ok")
 			},
 			func() error {
-				return editor.Printk("ko")
+				return builder.Printk("ko")
 			},
 		)
-		editor.Return(0)
+		builder.Return(0)
 
-		editor.Commit()
+		builder.Commit()
 
 		run(&prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
@@ -514,23 +514,23 @@ func TestBuilderInsts(t *testing.T) {
 
 	t.Run("equal-ko-1", func(t *testing.T) {
 		var prog Program
-		editor := prog.Edit(ProgramBuilderOpts{})
+		builder := prog.Edit(ProgramBuilderOpts{})
 
-		var1, _ := editor.NewVar(uint32(44))
-		var2, _ := editor.NewVar(uint32(66))
+		var1, _ := builder.NewVar(uint32(44))
+		var2, _ := builder.NewVar(uint32(66))
 
-		editor.IfThenElse(
-			editor.Equal(var1, var2),
+		builder.IfThenElse(
+			builder.Equal(var1, var2),
 			func() error {
-				return editor.Printk("ok")
+				return builder.Printk("ok")
 			},
 			func() error {
-				return editor.Printk("ko")
+				return builder.Printk("ko")
 			},
 		)
-		editor.Return(0)
+		builder.Return(0)
 
-		editor.Commit()
+		builder.Commit()
 
 		run(&prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
@@ -539,22 +539,22 @@ func TestBuilderInsts(t *testing.T) {
 
 	t.Run("equal-ko-2", func(t *testing.T) {
 		var prog Program
-		editor := prog.Edit(ProgramBuilderOpts{})
+		builder := prog.Edit(ProgramBuilderOpts{})
 
-		var1, _ := editor.NewVar(uint32(44))
+		var1, _ := builder.NewVar(uint32(44))
 
-		editor.IfThenElse(
-			editor.Equal(var1, uint32(66)),
+		builder.IfThenElse(
+			builder.Equal(var1, uint32(66)),
 			func() error {
-				return editor.Printk("ok")
+				return builder.Printk("ok")
 			},
 			func() error {
-				return editor.Printk("ko")
+				return builder.Printk("ko")
 			},
 		)
-		editor.Return(0)
+		builder.Return(0)
 
-		editor.Commit()
+		builder.Commit()
 
 		run(&prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
@@ -563,19 +563,19 @@ func TestBuilderInsts(t *testing.T) {
 
 	t.Run("map-lookup", func(t *testing.T) {
 		var prog Program
-		editor := prog.Edit(ProgramBuilderOpts{})
+		builder := prog.Edit(ProgramBuilderOpts{})
 
-		key, _ := editor.NewVar(uint32(1))
-		valuePtr, _ := editor.NewPtrVar(UInt32PtrType)
+		key, _ := builder.NewVar(uint32(1))
+		valuePtr, _ := builder.NewPtrVar(UInt32PtrType)
 
-		editor.MapLookup("map1", key, valuePtr)
+		builder.MapLookup("map1", key, valuePtr)
 
 		value, _ := valuePtr.Deref()
-		editor.Printk("value: %d", value)
+		builder.Printk("value: %d", value)
 
-		editor.Return(0)
+		builder.Return(0)
 
-		editor.Commit()
+		builder.Commit()
 
 		run(&prog, func(vm *VM) {
 			updated, err := vm.Map("map1").Update(uint32(1), uint32(44), BPF_ANY)
@@ -588,28 +588,28 @@ func TestBuilderInsts(t *testing.T) {
 
 	t.Run("map-update", func(t *testing.T) {
 		var prog Program
-		editor := prog.Edit(ProgramBuilderOpts{})
+		builder := prog.Edit(ProgramBuilderOpts{})
 
-		key, _ := editor.NewVar(uint32(2))
-		value, _ := editor.NewVar(uint32(66))
-		ret, _ := editor.NewVar(int32(-1))
+		key, _ := builder.NewVar(uint32(2))
+		value, _ := builder.NewVar(uint32(66))
+		ret, _ := builder.NewVar(int32(-1))
 
-		editor.MapUpdate("map1", key, value, ret, BPF_ANY)
-		editor.IfThenElse(editor.NotEqual(ret, uint32(0)),
+		builder.MapUpdate("map1", key, value, ret, BPF_ANY)
+		builder.IfThenElse(builder.NotEqual(ret, uint32(0)),
 			func() error {
-				editor.Return(0)
+				builder.Return(0)
 				return nil
 			}, nil)
 
-		valuePtr, _ := editor.NewPtrVar(UInt32PtrType)
-		editor.MapLookup("map1", key, valuePtr)
+		valuePtr, _ := builder.NewPtrVar(UInt32PtrType)
+		builder.MapLookup("map1", key, valuePtr)
 
 		value, _ = valuePtr.Deref()
-		editor.Printk("value: %d", value)
+		builder.Printk("value: %d", value)
 
-		editor.Return(0)
+		builder.Return(0)
 
-		editor.Commit()
+		builder.Commit()
 
 		run(&prog, func(vm *VM) {
 		}, func(_ *VM, output string) {
@@ -619,20 +619,20 @@ func TestBuilderInsts(t *testing.T) {
 
 	t.Run("and-ok-1", func(t *testing.T) {
 		var prog Program
-		editor := prog.Edit(ProgramBuilderOpts{})
+		builder := prog.Edit(ProgramBuilderOpts{})
 
-		editor.IfThenElse(
-			editor.And(editor.True(), editor.True()),
+		builder.IfThenElse(
+			builder.And(builder.True(), builder.True()),
 			func() error {
-				return editor.Printk("ok")
+				return builder.Printk("ok")
 			},
 			func() error {
-				return editor.Printk("ko")
+				return builder.Printk("ko")
 			},
 		)
-		editor.Return(0)
+		builder.Return(0)
 
-		editor.Commit()
+		builder.Commit()
 
 		run(&prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
@@ -641,20 +641,20 @@ func TestBuilderInsts(t *testing.T) {
 
 	t.Run("and-ko-1", func(t *testing.T) {
 		var prog Program
-		editor := prog.Edit(ProgramBuilderOpts{})
+		builder := prog.Edit(ProgramBuilderOpts{})
 
-		editor.IfThenElse(
-			editor.And(editor.True(), editor.False()),
+		builder.IfThenElse(
+			builder.And(builder.True(), builder.False()),
 			func() error {
-				return editor.Printk("ok")
+				return builder.Printk("ok")
 			},
 			func() error {
-				return editor.Printk("ko")
+				return builder.Printk("ko")
 			},
 		)
-		editor.Return(0)
+		builder.Return(0)
 
-		editor.Commit()
+		builder.Commit()
 
 		run(&prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
@@ -663,20 +663,20 @@ func TestBuilderInsts(t *testing.T) {
 
 	t.Run("and-ko-2", func(t *testing.T) {
 		var prog Program
-		editor := prog.Edit(ProgramBuilderOpts{})
+		builder := prog.Edit(ProgramBuilderOpts{})
 
-		editor.IfThenElse(
-			editor.And(editor.True(), editor.True(), editor.False()),
+		builder.IfThenElse(
+			builder.And(builder.True(), builder.True(), builder.False()),
 			func() error {
-				return editor.Printk("ok")
+				return builder.Printk("ok")
 			},
 			func() error {
-				return editor.Printk("ko")
+				return builder.Printk("ko")
 			},
 		)
-		editor.Return(0)
+		builder.Return(0)
 
-		editor.Commit()
+		builder.Commit()
 
 		run(&prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
@@ -685,20 +685,20 @@ func TestBuilderInsts(t *testing.T) {
 
 	t.Run("and-ko-3", func(t *testing.T) {
 		var prog Program
-		editor := prog.Edit(ProgramBuilderOpts{})
+		builder := prog.Edit(ProgramBuilderOpts{})
 
-		editor.IfThenElse(
-			editor.And(editor.False(), editor.True(), editor.False()),
+		builder.IfThenElse(
+			builder.And(builder.False(), builder.True(), builder.False()),
 			func() error {
-				return editor.Printk("ok")
+				return builder.Printk("ok")
 			},
 			func() error {
-				return editor.Printk("ko")
+				return builder.Printk("ko")
 			},
 		)
-		editor.Return(0)
+		builder.Return(0)
 
-		editor.Commit()
+		builder.Commit()
 
 		run(&prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
@@ -707,23 +707,23 @@ func TestBuilderInsts(t *testing.T) {
 
 	t.Run("and-equal-ok-1", func(t *testing.T) {
 		var prog Program
-		editor := prog.Edit(ProgramBuilderOpts{})
+		builder := prog.Edit(ProgramBuilderOpts{})
 
-		var1, _ := editor.NewVar(uint32(44))
-		var2, _ := editor.NewVar(uint32(66))
+		var1, _ := builder.NewVar(uint32(44))
+		var2, _ := builder.NewVar(uint32(66))
 
-		editor.IfThenElse(
-			editor.And(editor.Equal(var1, uint32(44)), editor.Equal(var2, uint32(66))),
+		builder.IfThenElse(
+			builder.And(builder.Equal(var1, uint32(44)), builder.Equal(var2, uint32(66))),
 			func() error {
-				return editor.Printk("ok")
+				return builder.Printk("ok")
 			},
 			func() error {
-				return editor.Printk("ko")
+				return builder.Printk("ko")
 			},
 		)
-		editor.Return(0)
+		builder.Return(0)
 
-		editor.Commit()
+		builder.Commit()
 
 		run(&prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
@@ -732,23 +732,23 @@ func TestBuilderInsts(t *testing.T) {
 
 	t.Run("and-equal-ko-1", func(t *testing.T) {
 		var prog Program
-		editor := prog.Edit(ProgramBuilderOpts{})
+		builder := prog.Edit(ProgramBuilderOpts{})
 
-		var1, _ := editor.NewVar(uint32(44))
-		var2, _ := editor.NewVar(uint32(66))
+		var1, _ := builder.NewVar(uint32(44))
+		var2, _ := builder.NewVar(uint32(66))
 
-		editor.IfThenElse(
-			editor.And(editor.Equal(var1, uint32(44)), editor.Equal(var2, uint32(77))),
+		builder.IfThenElse(
+			builder.And(builder.Equal(var1, uint32(44)), builder.Equal(var2, uint32(77))),
 			func() error {
-				return editor.Printk("ok")
+				return builder.Printk("ok")
 			},
 			func() error {
-				return editor.Printk("ko")
+				return builder.Printk("ko")
 			},
 		)
-		editor.Return(0)
+		builder.Return(0)
 
-		editor.Commit()
+		builder.Commit()
 
 		run(&prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
@@ -757,20 +757,20 @@ func TestBuilderInsts(t *testing.T) {
 
 	t.Run("or-ok-1", func(t *testing.T) {
 		var prog Program
-		editor := prog.Edit(ProgramBuilderOpts{})
+		builder := prog.Edit(ProgramBuilderOpts{})
 
-		editor.IfThenElse(
-			editor.Or(editor.False(), editor.True()),
+		builder.IfThenElse(
+			builder.Or(builder.False(), builder.True()),
 			func() error {
-				return editor.Printk("ok")
+				return builder.Printk("ok")
 			},
 			func() error {
-				return editor.Printk("ko")
+				return builder.Printk("ko")
 			},
 		)
-		editor.Return(0)
+		builder.Return(0)
 
-		editor.Commit()
+		builder.Commit()
 
 		run(&prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
@@ -779,20 +779,20 @@ func TestBuilderInsts(t *testing.T) {
 
 	t.Run("or-ok-2", func(t *testing.T) {
 		var prog Program
-		editor := prog.Edit(ProgramBuilderOpts{})
+		builder := prog.Edit(ProgramBuilderOpts{})
 
-		editor.IfThenElse(
-			editor.Or(editor.True(), editor.False()),
+		builder.IfThenElse(
+			builder.Or(builder.True(), builder.False()),
 			func() error {
-				return editor.Printk("ok")
+				return builder.Printk("ok")
 			},
 			func() error {
-				return editor.Printk("ko")
+				return builder.Printk("ko")
 			},
 		)
-		editor.Return(0)
+		builder.Return(0)
 
-		editor.Commit()
+		builder.Commit()
 
 		run(&prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
@@ -801,20 +801,20 @@ func TestBuilderInsts(t *testing.T) {
 
 	t.Run("or-ko-1", func(t *testing.T) {
 		var prog Program
-		editor := prog.Edit(ProgramBuilderOpts{})
+		builder := prog.Edit(ProgramBuilderOpts{})
 
-		editor.IfThenElse(
-			editor.Or(editor.False(), editor.False()),
+		builder.IfThenElse(
+			builder.Or(builder.False(), builder.False()),
 			func() error {
-				return editor.Printk("ok")
+				return builder.Printk("ok")
 			},
 			func() error {
-				return editor.Printk("ko")
+				return builder.Printk("ko")
 			},
 		)
-		editor.Return(0)
+		builder.Return(0)
 
-		editor.Commit()
+		builder.Commit()
 
 		run(&prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
@@ -823,23 +823,23 @@ func TestBuilderInsts(t *testing.T) {
 
 	t.Run("and-equal-ok-1", func(t *testing.T) {
 		var prog Program
-		editor := prog.Edit(ProgramBuilderOpts{})
+		builder := prog.Edit(ProgramBuilderOpts{})
 
-		var1, _ := editor.NewVar(uint32(44))
-		var2, _ := editor.NewVar(uint32(66))
+		var1, _ := builder.NewVar(uint32(44))
+		var2, _ := builder.NewVar(uint32(66))
 
-		editor.IfThenElse(
-			editor.Or(editor.Equal(var1, uint32(44)), editor.Equal(var2, uint32(77))),
+		builder.IfThenElse(
+			builder.Or(builder.Equal(var1, uint32(44)), builder.Equal(var2, uint32(77))),
 			func() error {
-				return editor.Printk("ok")
+				return builder.Printk("ok")
 			},
 			func() error {
-				return editor.Printk("ko")
+				return builder.Printk("ko")
 			},
 		)
-		editor.Return(0)
+		builder.Return(0)
 
-		editor.Commit()
+		builder.Commit()
 
 		run(&prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
@@ -848,23 +848,23 @@ func TestBuilderInsts(t *testing.T) {
 
 	t.Run("and-equal-ko-1", func(t *testing.T) {
 		var prog Program
-		editor := prog.Edit(ProgramBuilderOpts{})
+		builder := prog.Edit(ProgramBuilderOpts{})
 
-		var1, _ := editor.NewVar(uint32(44))
-		var2, _ := editor.NewVar(uint32(66))
+		var1, _ := builder.NewVar(uint32(44))
+		var2, _ := builder.NewVar(uint32(66))
 
-		editor.IfThenElse(
-			editor.Or(editor.Equal(var1, uint32(88)), editor.Equal(var2, uint32(77))),
+		builder.IfThenElse(
+			builder.Or(builder.Equal(var1, uint32(88)), builder.Equal(var2, uint32(77))),
 			func() error {
-				return editor.Printk("ok")
+				return builder.Printk("ok")
 			},
 			func() error {
-				return editor.Printk("ko")
+				return builder.Printk("ko")
 			},
 		)
-		editor.Return(0)
+		builder.Return(0)
 
-		editor.Commit()
+		builder.Commit()
 
 		run(&prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
