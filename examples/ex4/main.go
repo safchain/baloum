@@ -36,7 +36,7 @@ func run(test bool) {
 	defer debugger.Close()
 
 	var prog baloum.Program
-	editor := prog.Edit(baloum.ProgramEditorOpts{})
+	editor := prog.Edit(baloum.ProgramBuilderOpts{})
 
 	key, _ := editor.NewVar(uint32(1))
 	value, _ := editor.NewVar(uint32(77))
