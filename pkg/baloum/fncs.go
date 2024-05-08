@@ -18,6 +18,7 @@ package baloum
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"regexp"
 	"strings"
@@ -348,12 +349,12 @@ func FnMapDeleteElemImpl(vm *VM, inst *asm.Instruction) error {
 	}
 
 	deleted, err := _map.Delete(key)
-	if !deleted {
+	if !deleted || err != nil {
 		code := int64(ErrorCode)
 		vm.regs[asm.R0] = uint64(code)
 	}
 
-	return err
+	return nil
 }
 
 func FnPerfEventOutputImpl(vm *VM, inst *asm.Instruction) error {
@@ -407,9 +408,9 @@ func FnTailCallImpl(vm *VM, inst *asm.Instruction) error {
 
 	switch _map.keySize {
 	case 4:
-		bytes, err = _map.Lookup(uint32(vm.regs[asm.R3]))
+		bytes, err = _map.LookupBytes(uint32(vm.regs[asm.R3]))
 	case 8:
-		bytes, err = _map.Lookup(uint64(vm.regs[asm.R3]))
+		bytes, err = _map.LookupBytes(uint64(vm.regs[asm.R3]))
 	default:
 		return errors.New("key size not supported")
 	}
@@ -421,9 +422,9 @@ func FnTailCallImpl(vm *VM, inst *asm.Instruction) error {
 	var fd int
 	switch _map.valueSize {
 	case 4:
-		fd = int(ByteOrder.Uint32(bytes))
+		fd = int(binary.NativeEndian.Uint32(bytes))
 	case 8:
-		fd = int(ByteOrder.Uint64(bytes))
+		fd = int(binary.NativeEndian.Uint64(bytes))
 	default:
 		return errors.New("value size not supported")
 	}

@@ -16,14 +16,16 @@ limitations under the License.
 
 package baloum
 
+import "encoding/binary"
+
 func (ctx *StdContext) Bytes() []byte {
 	data := make([]byte, 168)
 
-	ByteOrder.PutUint64(data[112:], ctx.Arg0)
-	ByteOrder.PutUint64(data[104:], ctx.Arg1)
-	ByteOrder.PutUint64(data[96:], ctx.Arg2)
-	ByteOrder.PutUint64(data[88:], ctx.Arg3)
-	ByteOrder.PutUint64(data[72:], ctx.Arg4)
+	binary.NativeEndian.PutUint64(data[112:], ctx.Arg0)
+	binary.NativeEndian.PutUint64(data[104:], ctx.Arg1)
+	binary.NativeEndian.PutUint64(data[96:], ctx.Arg2)
+	binary.NativeEndian.PutUint64(data[88:], ctx.Arg3)
+	binary.NativeEndian.PutUint64(data[72:], ctx.Arg4)
 
 	return data
 }

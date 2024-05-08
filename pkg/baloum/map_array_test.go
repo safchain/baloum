@@ -17,6 +17,7 @@ limitations under the License.
 package baloum
 
 import (
+	"encoding/binary"
 	"log"
 	"os"
 	"testing"
@@ -49,9 +50,14 @@ func TestMapArray64(t *testing.T) {
 	assert.Zero(t, code)
 	assert.Nil(t, err)
 
-	data, err := vm.Map("cache64").Lookup(uint64(4))
+	data, err := vm.Map("cache64").LookupBytes(uint64(4))
 	assert.Nil(t, err)
-	assert.Equal(t, uint64(44), ByteOrder.Uint64(data))
+	assert.Equal(t, uint64(44), binary.NativeEndian.Uint64(data))
+
+	var value uint64
+	err = vm.Map("cache64").Lookup(uint64(4), &value)
+	assert.Nil(t, err)
+	assert.Equal(t, uint64(44), value)
 }
 
 func TestMapArray32(t *testing.T) {
@@ -77,7 +83,12 @@ func TestMapArray32(t *testing.T) {
 	assert.Zero(t, code)
 	assert.Nil(t, err)
 
-	data, err := vm.Map("cache32").Lookup(uint32(4))
+	data, err := vm.Map("cache32").LookupBytes(uint32(4))
 	assert.Nil(t, err)
-	assert.Equal(t, uint32(44), ByteOrder.Uint32(data))
+	assert.Equal(t, uint32(44), binary.NativeEndian.Uint32(data))
+
+	var value uint32
+	err = vm.Map("cache32").Lookup(uint32(4), &value)
+	assert.Nil(t, err)
+	assert.Equal(t, uint32(44), value)
 }

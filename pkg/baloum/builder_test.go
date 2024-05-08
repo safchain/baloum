@@ -17,8 +17,10 @@ limitations under the License.
 package baloum
 
 import (
+	"encoding/binary"
 	"fmt"
 	"testing"
+	"unsafe"
 
 	"github.com/cilium/ebpf"
 	"github.com/stretchr/testify/assert"
@@ -101,81 +103,125 @@ func TestBuilderStack(t *testing.T) {
 	})
 }
 
-func TestBuilderInsts(t *testing.T) {
-	run := func(prog *Program, pre func(vm *VM), post func(vm *VM, output string)) {
-		t.Helper()
+type Dentry struct {
+	MountID uint64
+	Inode   uint32
+	_       uint32
+}
 
-		err := prog.Prepare(4096)
-		if err != nil {
-			t.Fatal(err)
-		}
+// TODO: generate unmarshaller + marshaller based on tag
+func (d *Dentry) MarshalBinary() ([]byte, error) {
+	sizeOfMountID := unsafe.Sizeof(d.MountID)
+	data := make([]byte, d.Sizeof())
 
-		logger, _ := zap.NewDevelopment()
-		defer logger.Sync()
+	binary.NativeEndian.PutUint64(data, d.MountID)
+	binary.NativeEndian.PutUint32(data[sizeOfMountID:], d.Inode)
 
-		suggar := logger.Sugar()
-		var printed string
+	return data, nil
+}
 
-		fncs := Fncs{
-			TracePrintk: func(vm *VM, format string, args ...interface{}) error {
-				printed = fmt.Sprintf(format, args...)
-				return nil
-			},
-		}
+func (d *Dentry) UnmarshalBinary(data []byte) error {
+	d.Inode = binary.NativeEndian.Uint32(data[:])
+	d.MountID = binary.NativeEndian.Uint64(data[unsafe.Sizeof(d.Inode):])
+	return nil
+}
 
-		spec := &ebpf.CollectionSpec{
-			Programs: map[string]*ebpf.ProgramSpec{
-				"test/printk": {
-					Name:         "test/printk",
-					SectionName:  "test/printk",
-					Type:         ebpf.Kprobe,
-					Instructions: prog.Instructions(),
-				},
-			},
-			Maps: map[string]*ebpf.MapSpec{
-				"map1": {
-					Name:       "map1",
-					Type:       ebpf.Array,
-					KeySize:    4,
-					ValueSize:  4,
-					MaxEntries: 10,
-				},
-			},
-		}
+func (d Dentry) Sizeof() uint32 {
+	return 16
+}
 
-		vm := NewVM(spec, Opts{Fncs: fncs, Logger: suggar})
-		err = vm.LoadMap("map1")
-		assert.Nil(t, err)
+func runProg(t *testing.T, prog *Program, pre func(vm *VM), post func(vm *VM, output string)) {
+	t.Helper()
 
-		if pre != nil {
-			pre(vm)
-		}
-
-		var ctx StdContext
-		code, err := vm.RunProgram(&ctx, "test/printk")
-		assert.Zero(t, code)
-		assert.Nil(t, err)
-
-		post(vm, printed)
+	err := prog.Prepare(4096)
+	if err != nil {
+		t.Fatal(err)
 	}
 
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+
+	suggar := logger.Sugar()
+	var printed string
+
+	fncs := Fncs{
+		TracePrintk: func(vm *VM, format string, args ...interface{}) error {
+			printed = fmt.Sprintf(format, args...)
+			return nil
+		},
+	}
+
+	spec := &ebpf.CollectionSpec{
+		Programs: map[string]*ebpf.ProgramSpec{
+			"test/printk": {
+				Name:         "test/printk",
+				SectionName:  "test/printk",
+				Type:         ebpf.Kprobe,
+				Instructions: prog.Instructions(),
+			},
+		},
+		Maps: map[string]*ebpf.MapSpec{
+			"map1": {
+				Name:       "map1",
+				Type:       ebpf.Array,
+				KeySize:    4,
+				ValueSize:  4,
+				MaxEntries: 10,
+			},
+			"map2": {
+				Name:       "map2",
+				Type:       ebpf.LRUHash,
+				KeySize:    4,
+				ValueSize:  4,
+				MaxEntries: 10,
+			},
+			"map3": {
+				Name:       "map3",
+				Type:       ebpf.LRUHash,
+				KeySize:    4,
+				ValueSize:  Dentry{}.Sizeof(),
+				MaxEntries: 10,
+			},
+		},
+	}
+
+	vm := NewVM(spec, Opts{Fncs: fncs, Logger: suggar})
+	err = vm.LoadMaps("map1", "map2", "map3")
+	assert.Nil(t, err)
+
+	if pre != nil {
+		pre(vm)
+	}
+
+	var ctx StdContext
+	code, err := vm.RunProgram(&ctx, "test/printk")
+	assert.Zero(t, code)
+	assert.Nil(t, err)
+
+	post(vm, printed)
+}
+
+func TestBuilderPrintk(t *testing.T) {
 	t.Run("printk", func(t *testing.T) {
 		var prog Program
 		builder := prog.Edit(ProgramBuilderOpts{})
 
-		var1, _ := builder.NewVar(uint32(55))
-		var2, _ := builder.NewVar(uint32(88))
-		var3, _ := builder.NewVar("test")
+		var1, _ := builder.NewVarV(uint32(55))
+		var2, _ := builder.NewVarV(uint32(88))
+		var3, _ := builder.NewVarV("test")
 		builder.Printk("this is a printk test, values: %d %d %s", var1, var2, var3)
 		builder.Return(0)
 
 		builder.Commit()
 
-		run(&prog, nil, func(_ *VM, output string) {
+		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "this is a printk test, values: 55 88 test", output)
 		})
 	})
 
+}
+
+func TestBuilderCond(t *testing.T) {
 	t.Run("if-then-else-ok", func(t *testing.T) {
 		var prog Program
 		builder := prog.Edit(ProgramBuilderOpts{})
@@ -193,7 +239,7 @@ func TestBuilderInsts(t *testing.T) {
 
 		builder.Commit()
 
-		run(&prog, nil, func(_ *VM, output string) {
+		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
 		})
 	})
@@ -215,7 +261,7 @@ func TestBuilderInsts(t *testing.T) {
 
 		builder.Commit()
 
-		run(&prog, nil, func(_ *VM, output string) {
+		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
 		})
 	})
@@ -237,7 +283,7 @@ func TestBuilderInsts(t *testing.T) {
 
 		builder.Commit()
 
-		run(&prog, nil, func(_ *VM, output string) {
+		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "", output)
 		})
 	})
@@ -259,7 +305,7 @@ func TestBuilderInsts(t *testing.T) {
 
 		builder.Commit()
 
-		run(&prog, nil, func(_ *VM, output string) {
+		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
 		})
 	})
@@ -281,7 +327,7 @@ func TestBuilderInsts(t *testing.T) {
 
 		builder.Commit()
 
-		run(&prog, nil, func(_ *VM, output string) {
+		runProg(t, &prog, nil, func(_ *VM, output string) {
 		})
 	})
 
@@ -302,7 +348,7 @@ func TestBuilderInsts(t *testing.T) {
 
 		builder.Commit()
 
-		run(&prog, nil, func(_ *VM, output string) {
+		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
 		})
 	})
@@ -330,7 +376,7 @@ func TestBuilderInsts(t *testing.T) {
 
 		builder.Commit()
 
-		run(&prog, nil, func(_ *VM, output string) {
+		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
 		})
 	})
@@ -360,105 +406,7 @@ func TestBuilderInsts(t *testing.T) {
 
 		builder.Commit()
 
-		run(&prog, nil, func(_ *VM, output string) {
-			assert.Equal(t, "ko", output)
-		})
-	})
-
-	t.Run("strcmp-static-ok", func(t *testing.T) {
-		var prog Program
-		builder := prog.Edit(ProgramBuilderOpts{})
-
-		var1, _ := builder.NewVar("test123")
-
-		builder.IfThenElse(
-			builder.StrStaticCmp(var1, "test123"),
-			func() error {
-				return builder.Printk("ok")
-			},
-			func() error {
-				return builder.Printk("ko")
-			},
-		)
-		builder.Return(0)
-
-		builder.Commit()
-
-		run(&prog, nil, func(_ *VM, output string) {
-			assert.Equal(t, "ok", output)
-		})
-	})
-
-	t.Run("strcmp-static-ko", func(t *testing.T) {
-		var prog Program
-		builder := prog.Edit(ProgramBuilderOpts{})
-
-		var1, _ := builder.NewVar("test123")
-
-		builder.IfThenElse(
-			builder.StrStaticCmp(var1, "test567"),
-			func() error {
-				return builder.Printk("ok")
-			},
-			func() error {
-				return builder.Printk("ko")
-			},
-		)
-		builder.Return(0)
-
-		builder.Commit()
-
-		run(&prog, nil, func(_ *VM, output string) {
-			assert.Equal(t, "ko", output)
-		})
-	})
-
-	t.Run("strcmp-ok", func(t *testing.T) {
-		var prog Program
-		builder := prog.Edit(ProgramBuilderOpts{})
-
-		var1, _ := builder.NewVar("test123")
-		var2, _ := builder.NewVar("test123")
-
-		builder.IfThenElse(
-			builder.StrCmp(var1, var2, 30),
-			func() error {
-				return builder.Printk("ok")
-			},
-			func() error {
-				return builder.Printk("ko")
-			},
-		)
-		builder.Return(0)
-
-		builder.Commit()
-
-		run(&prog, nil, func(_ *VM, output string) {
-			assert.Equal(t, "ok", output)
-		})
-	})
-
-	t.Run("strcmp-ko", func(t *testing.T) {
-		var prog Program
-		builder := prog.Edit(ProgramBuilderOpts{})
-
-		var1, _ := builder.NewVar("test123")
-		var2, _ := builder.NewVar("test567")
-
-		builder.IfThenElse(
-			builder.StrCmp(var1, var2, 30),
-			func() error {
-				return builder.Printk("ok")
-			},
-			func() error {
-				return builder.Printk("ko")
-			},
-		)
-		builder.Return(0)
-
-		builder.Commit()
-
-		run(&prog, nil, func(_ *VM, output string) {
+		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
 		})
 	})
@@ -467,8 +415,8 @@ func TestBuilderInsts(t *testing.T) {
 		var prog Program
 		builder := prog.Edit(ProgramBuilderOpts{})
 
-		var1, _ := builder.NewVar(uint32(44))
-		var2, _ := builder.NewVar(uint32(44))
+		var1, _ := builder.NewVarV(uint32(44))
+		var2, _ := builder.NewVarV(uint32(44))
 
 		builder.IfThenElse(
 			builder.Equal(var1, var2),
@@ -483,7 +431,7 @@ func TestBuilderInsts(t *testing.T) {
 
 		builder.Commit()
 
-		run(&prog, nil, func(_ *VM, output string) {
+		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
 		})
 	})
@@ -492,7 +440,7 @@ func TestBuilderInsts(t *testing.T) {
 		var prog Program
 		builder := prog.Edit(ProgramBuilderOpts{})
 
-		var1, _ := builder.NewVar(uint32(44))
+		var1, _ := builder.NewVarV(uint32(44))
 
 		builder.IfThenElse(
 			builder.Equal(var1, uint32(44)),
@@ -507,7 +455,7 @@ func TestBuilderInsts(t *testing.T) {
 
 		builder.Commit()
 
-		run(&prog, nil, func(_ *VM, output string) {
+		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
 		})
 	})
@@ -516,8 +464,8 @@ func TestBuilderInsts(t *testing.T) {
 		var prog Program
 		builder := prog.Edit(ProgramBuilderOpts{})
 
-		var1, _ := builder.NewVar(uint32(44))
-		var2, _ := builder.NewVar(uint32(66))
+		var1, _ := builder.NewVarV(uint32(44))
+		var2, _ := builder.NewVarV(uint32(66))
 
 		builder.IfThenElse(
 			builder.Equal(var1, var2),
@@ -532,7 +480,7 @@ func TestBuilderInsts(t *testing.T) {
 
 		builder.Commit()
 
-		run(&prog, nil, func(_ *VM, output string) {
+		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
 		})
 	})
@@ -541,7 +489,7 @@ func TestBuilderInsts(t *testing.T) {
 		var prog Program
 		builder := prog.Edit(ProgramBuilderOpts{})
 
-		var1, _ := builder.NewVar(uint32(44))
+		var1, _ := builder.NewVarV(uint32(44))
 
 		builder.IfThenElse(
 			builder.Equal(var1, uint32(66)),
@@ -556,64 +504,8 @@ func TestBuilderInsts(t *testing.T) {
 
 		builder.Commit()
 
-		run(&prog, nil, func(_ *VM, output string) {
+		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
-		})
-	})
-
-	t.Run("map-lookup", func(t *testing.T) {
-		var prog Program
-		builder := prog.Edit(ProgramBuilderOpts{})
-
-		key, _ := builder.NewVar(uint32(1))
-		valuePtr, _ := builder.NewPtrVar(UInt32PtrType)
-
-		builder.MapLookup("map1", key, valuePtr)
-
-		value, _ := valuePtr.Deref()
-		builder.Printk("value: %d", value)
-
-		builder.Return(0)
-
-		builder.Commit()
-
-		run(&prog, func(vm *VM) {
-			updated, err := vm.Map("map1").Update(uint32(1), uint32(44), BPF_ANY)
-			assert.True(t, updated)
-			assert.Nil(t, err)
-		}, func(_ *VM, output string) {
-			assert.Equal(t, "value: 44", output)
-		})
-	})
-
-	t.Run("map-update", func(t *testing.T) {
-		var prog Program
-		builder := prog.Edit(ProgramBuilderOpts{})
-
-		key, _ := builder.NewVar(uint32(2))
-		value, _ := builder.NewVar(uint32(66))
-		ret, _ := builder.NewVar(int32(-1))
-
-		builder.MapUpdate("map1", key, value, ret, BPF_ANY)
-		builder.IfThenElse(builder.NotEqual(ret, uint32(0)),
-			func() error {
-				builder.Return(0)
-				return nil
-			}, nil)
-
-		valuePtr, _ := builder.NewPtrVar(UInt32PtrType)
-		builder.MapLookup("map1", key, valuePtr)
-
-		value, _ = valuePtr.Deref()
-		builder.Printk("value: %d", value)
-
-		builder.Return(0)
-
-		builder.Commit()
-
-		run(&prog, func(vm *VM) {
-		}, func(_ *VM, output string) {
-			assert.Equal(t, "value: 66", output)
 		})
 	})
 
@@ -634,7 +526,7 @@ func TestBuilderInsts(t *testing.T) {
 
 		builder.Commit()
 
-		run(&prog, nil, func(_ *VM, output string) {
+		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
 		})
 	})
@@ -656,7 +548,7 @@ func TestBuilderInsts(t *testing.T) {
 
 		builder.Commit()
 
-		run(&prog, nil, func(_ *VM, output string) {
+		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
 		})
 	})
@@ -678,7 +570,7 @@ func TestBuilderInsts(t *testing.T) {
 
 		builder.Commit()
 
-		run(&prog, nil, func(_ *VM, output string) {
+		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
 		})
 	})
@@ -700,7 +592,7 @@ func TestBuilderInsts(t *testing.T) {
 
 		builder.Commit()
 
-		run(&prog, nil, func(_ *VM, output string) {
+		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
 		})
 	})
@@ -709,8 +601,8 @@ func TestBuilderInsts(t *testing.T) {
 		var prog Program
 		builder := prog.Edit(ProgramBuilderOpts{})
 
-		var1, _ := builder.NewVar(uint32(44))
-		var2, _ := builder.NewVar(uint32(66))
+		var1, _ := builder.NewVarV(uint32(44))
+		var2, _ := builder.NewVarV(uint32(66))
 
 		builder.IfThenElse(
 			builder.And(builder.Equal(var1, uint32(44)), builder.Equal(var2, uint32(66))),
@@ -725,7 +617,7 @@ func TestBuilderInsts(t *testing.T) {
 
 		builder.Commit()
 
-		run(&prog, nil, func(_ *VM, output string) {
+		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
 		})
 	})
@@ -734,8 +626,8 @@ func TestBuilderInsts(t *testing.T) {
 		var prog Program
 		builder := prog.Edit(ProgramBuilderOpts{})
 
-		var1, _ := builder.NewVar(uint32(44))
-		var2, _ := builder.NewVar(uint32(66))
+		var1, _ := builder.NewVarV(uint32(44))
+		var2, _ := builder.NewVarV(uint32(66))
 
 		builder.IfThenElse(
 			builder.And(builder.Equal(var1, uint32(44)), builder.Equal(var2, uint32(77))),
@@ -750,7 +642,7 @@ func TestBuilderInsts(t *testing.T) {
 
 		builder.Commit()
 
-		run(&prog, nil, func(_ *VM, output string) {
+		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
 		})
 	})
@@ -772,7 +664,7 @@ func TestBuilderInsts(t *testing.T) {
 
 		builder.Commit()
 
-		run(&prog, nil, func(_ *VM, output string) {
+		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
 		})
 	})
@@ -794,7 +686,7 @@ func TestBuilderInsts(t *testing.T) {
 
 		builder.Commit()
 
-		run(&prog, nil, func(_ *VM, output string) {
+		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
 		})
 	})
@@ -816,7 +708,7 @@ func TestBuilderInsts(t *testing.T) {
 
 		builder.Commit()
 
-		run(&prog, nil, func(_ *VM, output string) {
+		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
 		})
 	})
@@ -825,8 +717,8 @@ func TestBuilderInsts(t *testing.T) {
 		var prog Program
 		builder := prog.Edit(ProgramBuilderOpts{})
 
-		var1, _ := builder.NewVar(uint32(44))
-		var2, _ := builder.NewVar(uint32(66))
+		var1, _ := builder.NewVarV(uint32(44))
+		var2, _ := builder.NewVarV(uint32(66))
 
 		builder.IfThenElse(
 			builder.Or(builder.Equal(var1, uint32(44)), builder.Equal(var2, uint32(77))),
@@ -841,7 +733,7 @@ func TestBuilderInsts(t *testing.T) {
 
 		builder.Commit()
 
-		run(&prog, nil, func(_ *VM, output string) {
+		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
 		})
 	})
@@ -850,8 +742,8 @@ func TestBuilderInsts(t *testing.T) {
 		var prog Program
 		builder := prog.Edit(ProgramBuilderOpts{})
 
-		var1, _ := builder.NewVar(uint32(44))
-		var2, _ := builder.NewVar(uint32(66))
+		var1, _ := builder.NewVarV(uint32(44))
+		var2, _ := builder.NewVarV(uint32(66))
 
 		builder.IfThenElse(
 			builder.Or(builder.Equal(var1, uint32(88)), builder.Equal(var2, uint32(77))),
@@ -866,8 +758,241 @@ func TestBuilderInsts(t *testing.T) {
 
 		builder.Commit()
 
-		run(&prog, nil, func(_ *VM, output string) {
+		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
+		})
+	})
+}
+
+func TestBuilderStrCmp(t *testing.T) {
+	t.Run("strcmp-static-ok", func(t *testing.T) {
+		var prog Program
+		builder := prog.Edit(ProgramBuilderOpts{})
+
+		var1, _ := builder.NewVarV("test123")
+
+		builder.IfThenElse(
+			builder.StrStaticCmp(var1, "test123"),
+			func() error {
+				return builder.Printk("ok")
+			},
+			func() error {
+				return builder.Printk("ko")
+			},
+		)
+		builder.Return(0)
+
+		builder.Commit()
+
+		runProg(t, &prog, nil, func(_ *VM, output string) {
+			assert.Equal(t, "ok", output)
+		})
+	})
+
+	t.Run("strcmp-static-ko", func(t *testing.T) {
+		var prog Program
+		builder := prog.Edit(ProgramBuilderOpts{})
+
+		var1, _ := builder.NewVarV("test123")
+
+		builder.IfThenElse(
+			builder.StrStaticCmp(var1, "test567"),
+			func() error {
+				return builder.Printk("ok")
+			},
+			func() error {
+				return builder.Printk("ko")
+			},
+		)
+		builder.Return(0)
+
+		builder.Commit()
+
+		runProg(t, &prog, nil, func(_ *VM, output string) {
+			assert.Equal(t, "ko", output)
+		})
+	})
+
+	t.Run("strcmp-ok", func(t *testing.T) {
+		var prog Program
+		builder := prog.Edit(ProgramBuilderOpts{})
+
+		var1, _ := builder.NewVarV("test123")
+		var2, _ := builder.NewVarV("test123")
+
+		builder.IfThenElse(
+			builder.StrCmp(var1, var2, 30),
+			func() error {
+				return builder.Printk("ok")
+			},
+			func() error {
+				return builder.Printk("ko")
+			},
+		)
+		builder.Return(0)
+
+		builder.Commit()
+
+		runProg(t, &prog, nil, func(_ *VM, output string) {
+			assert.Equal(t, "ok", output)
+		})
+	})
+
+	t.Run("strcmp-ko", func(t *testing.T) {
+		var prog Program
+		builder := prog.Edit(ProgramBuilderOpts{})
+
+		var1, _ := builder.NewVarV("test123")
+		var2, _ := builder.NewVarV("test567")
+
+		builder.IfThenElse(
+			builder.StrCmp(var1, var2, 30),
+			func() error {
+				return builder.Printk("ok")
+			},
+			func() error {
+				return builder.Printk("ko")
+			},
+		)
+		builder.Return(0)
+
+		builder.Commit()
+
+		runProg(t, &prog, nil, func(_ *VM, output string) {
+			assert.Equal(t, "ko", output)
+		})
+	})
+}
+
+func TestBuilderMap(t *testing.T) {
+	t.Run("map-lookup", func(t *testing.T) {
+		var prog Program
+		builder := prog.Edit(ProgramBuilderOpts{})
+
+		key, _ := builder.NewVarV(uint32(1))
+		valuePtr, _ := builder.NewPtrVar()
+
+		builder.MapLookup("map1", key, valuePtr)
+
+		value, _ := valuePtr.Deref(UInt32Type, 0)
+		builder.Printk("value: %d", value)
+
+		builder.Return(0)
+
+		builder.Commit()
+
+		runProg(t, &prog, func(vm *VM) {
+			updated, err := vm.Map("map1").Update(uint32(1), uint32(44), BPF_ANY)
+			assert.True(t, updated)
+			assert.Nil(t, err)
+		}, func(_ *VM, output string) {
+			assert.Equal(t, "value: 44", output)
+		})
+	})
+
+	t.Run("map-update", func(t *testing.T) {
+		var prog Program
+		builder := prog.Edit(ProgramBuilderOpts{})
+
+		key, _ := builder.NewVarV(uint32(2))
+		value, _ := builder.NewVarV(uint32(66))
+		ret, _ := builder.NewVarV(int32(-1))
+
+		builder.MapUpdate("map1", key, value, ret, BPF_ANY)
+		builder.IfThenElse(builder.NotEqual(ret, int32(0)),
+			func() error {
+				builder.Return(0)
+				return nil
+			}, nil)
+
+		valuePtr, _ := builder.NewPtrVar()
+		builder.MapLookup("map1", key, valuePtr)
+
+		value, _ = valuePtr.Deref(UInt32Type, 0)
+		builder.Printk("value: %d", value)
+
+		builder.Return(0)
+
+		builder.Commit()
+
+		runProg(t, &prog, func(vm *VM) {
+		}, func(_ *VM, output string) {
+			assert.Equal(t, "value: 66", output)
+		})
+	})
+
+	t.Run("map-delete", func(t *testing.T) {
+		var prog Program
+		builder := prog.Edit(ProgramBuilderOpts{})
+
+		key, _ := builder.NewVarV(uint32(2))
+		value, _ := builder.NewVarV(uint32(66))
+		ret, _ := builder.NewVarV(int32(-1))
+
+		builder.MapUpdate("map2", key, value, ret, BPF_ANY)
+		builder.IfThenElse(builder.NotEqual(ret, uint32(0)),
+			func() error {
+				builder.Return(0)
+				return nil
+			}, nil)
+
+		valuePtr, _ := builder.NewPtrVar()
+		builder.MapLookup("map2", key, valuePtr)
+
+		value, _ = valuePtr.Deref(UInt32Type, 0)
+		builder.Printk("value: %d", value)
+
+		builder.MapDelete("map2", key, ret)
+		builder.IfThenElse(builder.NotEqual(ret, uint32(0)),
+			func() error {
+				builder.Return(0)
+				return nil
+			}, nil)
+
+		builder.Return(0)
+
+		builder.Commit()
+
+		runProg(t, &prog, func(vm *VM) {
+		}, func(vm *VM, output string) {
+			assert.Equal(t, "value: 66", output)
+
+			data, err := vm.Map("map2").LookupBytes(uint32(2))
+			assert.NoError(t, err)
+			assert.Nil(t, data)
+		})
+	})
+}
+
+func TestBuilderMarshal(t *testing.T) {
+	t.Run("map-lookup", func(t *testing.T) {
+		var (
+			prog   Program
+			dentry = Dentry{
+				MountID: 108,
+				Inode:   90,
+			}
+		)
+		builder := prog.Edit(ProgramBuilderOpts{})
+
+		key, _ := builder.NewVarV(uint32(1))
+		valuePtr, _ := builder.NewPtrVar()
+
+		builder.MapLookup("map3", key, valuePtr)
+
+		value, _ := valuePtr.Deref(UInt32Type, 8)
+		builder.Printk("value: %d", value)
+
+		builder.Return(0)
+
+		builder.Commit()
+
+		runProg(t, &prog, func(vm *VM) {
+			updated, err := vm.Map("map3").Update(uint32(1), &dentry, BPF_ANY)
+			assert.True(t, updated)
+			assert.Nil(t, err)
+		}, func(_ *VM, output string) {
+			assert.Equal(t, "value: 90", output)
 		})
 	})
 }

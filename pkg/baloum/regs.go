@@ -16,7 +16,10 @@ limitations under the License.
 
 package baloum
 
-import "errors"
+import (
+	"encoding/binary"
+	"errors"
+)
 
 const (
 	REGS_NUM  = 11
@@ -32,7 +35,7 @@ func (r *Regs) Parse(data []byte) error {
 
 	var offset int
 	for i := range r {
-		r[i] = ByteOrder.Uint64(data[offset : offset+8])
+		r[i] = binary.NativeEndian.Uint64(data[offset : offset+8])
 		offset += 8
 	}
 
@@ -44,7 +47,7 @@ func (r *Regs) Bytes() []byte {
 
 	var offset int
 	for _, reg := range r {
-		ByteOrder.PutUint64(data[offset:offset+8], reg)
+		binary.NativeEndian.PutUint64(data[offset:offset+8], reg)
 		offset += 8
 	}
 

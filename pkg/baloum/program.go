@@ -28,7 +28,7 @@ import (
 type SymbolType = string
 
 const (
-	JumpSymbolType       SymbolType = "-jmp"
+	JumpSymbolType       SymbolType = "jmp"
 	BreakpointSymbolType SymbolType = "breakpoint"
 )
 

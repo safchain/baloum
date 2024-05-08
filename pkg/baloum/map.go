@@ -17,6 +17,7 @@ limitations under the License.
 package baloum
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/cilium/ebpf"
@@ -58,7 +59,7 @@ func (m *Map) LookupAddr(key interface{}) (uint64, error) {
 	return m.storage.Lookup(b)
 }
 
-func (m *Map) Lookup(key interface{}) ([]byte, error) {
+func (m *Map) LookupBytes(key interface{}) ([]byte, error) {
 	addr, err := m.LookupAddr(key)
 	if addr == 0 || err != nil {
 		return nil, err
@@ -72,7 +73,24 @@ func (m *Map) Lookup(key interface{}) ([]byte, error) {
 	return bytes[addr:], nil
 }
 
+func (m *Map) Lookup(key interface{}, value interface{}) error {
+	if m == nil {
+		return errors.New("nil map")
+	}
+
+	data, err := m.LookupBytes(key)
+	if err != nil {
+		return err
+	}
+
+	return FromBytes(data, value)
+}
+
 func (m *Map) Update(key interface{}, value interface{}, kind MapUpdateType) (bool, error) {
+	if m == nil {
+		return false, errors.New("nil map")
+	}
+
 	bKey, err := ToBytes(key, int(m.keySize))
 	if err != nil {
 		return false, err
@@ -87,6 +105,10 @@ func (m *Map) Update(key interface{}, value interface{}, kind MapUpdateType) (bo
 }
 
 func (m *Map) Delete(key interface{}) (bool, error) {
+	if m == nil {
+		return false, errors.New("nil map")
+	}
+
 	b, err := ToBytes(key, int(m.keySize))
 	if err != nil {
 		return false, err
@@ -147,7 +169,7 @@ func (mi *MapIterator) Next() ([]byte, []byte, bool) {
 	}
 	key := mi.keys[mi.idx]
 
-	value, err := mi._map.Lookup(key)
+	value, err := mi._map.LookupBytes(key)
 	if err != nil {
 		return nil, nil, false
 	}

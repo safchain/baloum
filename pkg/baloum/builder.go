@@ -92,18 +92,11 @@ const (
 	UInt32Type
 	Int64Type
 	UInt64Type
-	Int8PtrType
-	UInt8PtrType
-	Int16PtrType
-	UInt16PtrType
-	Int32PtrType
-	UInt32PtrType
-	Int64PtrType
-	UInt64PtrType
+	PtrType
 )
 
 func (vt VariableType) IsPtr() bool {
-	return vt == UInt8PtrType || vt == UInt16PtrType || vt == UInt32PtrType || vt == UInt64PtrType
+	return vt == PtrType
 }
 
 func (vt VariableType) Sizeof() asm.Size {
@@ -133,39 +126,22 @@ type Variable struct {
 	pb *ProgramBuilder
 }
 
-func (vr Variable) IsPtr() bool {
+func (vr *Variable) IsPtr() bool {
 	return vr.Type.IsPtr()
 }
 
-func (vr Variable) Sizeof() asm.Size {
+func (vr *Variable) Sizeof() asm.Size {
 	return vr.Type.Sizeof()
 }
 
-func (vr Variable) Deref() (*Variable, error) {
-	var (
-		derefVar *Variable
-		err      error
-	)
+func (vr *Variable) Deref(vt VariableType, offset int16) (*Variable, error) {
+	if !vr.IsPtr() {
+		return nil, errors.New("invalid variable type")
+	}
 
-	switch vr.Type {
-	case Int8PtrType:
-		derefVar, err = vr.pb.NewNumberVar(Int8Type, int32(0))
-	case UInt8PtrType:
-		derefVar, err = vr.pb.NewNumberVar(UInt8Type, int32(0))
-	case Int16PtrType:
-		derefVar, err = vr.pb.NewNumberVar(Int16Type, int32(0))
-	case UInt16PtrType:
-		derefVar, err = vr.pb.NewNumberVar(UInt16Type, int32(0))
-	case Int32PtrType:
-		derefVar, err = vr.pb.NewNumberVar(Int32Type, int32(0))
-	case UInt32PtrType:
-		derefVar, err = vr.pb.NewNumberVar(UInt32Type, int32(0))
-	case Int64PtrType:
-		derefVar, err = vr.pb.NewNumberVar(Int64Type, int32(0))
-	case UInt64PtrType:
-		derefVar, err = vr.pb.NewNumberVar(UInt64Type, int32(0))
-	default:
-		return nil, errors.New("not a pointer")
+	derefVar, err := vr.pb.NewVar(vt)
+	if err != nil {
+		return nil, err
 	}
 
 	reg1, reg2, err := vr.pb.regAlloc.Alloc2()
@@ -176,14 +152,14 @@ func (vr Variable) Deref() (*Variable, error) {
 
 	vr.pb.insts = append(vr.pb.insts, asm.Instructions{
 		asm.LoadMem(reg1, asm.RFP, vr.Addr, vr.Sizeof()),
-		asm.LoadMem(reg2, reg1, 0, derefVar.Sizeof()),
+		asm.LoadMem(reg2, reg1, offset, derefVar.Sizeof()),
 		asm.StoreMem(asm.RFP, derefVar.Addr, reg2, derefVar.Sizeof()),
 	}...)
 
 	return derefVar, nil
 }
 
-func (vr Variable) Ptr() (asm.Register, error) {
+func (vr *Variable) Ptr() (asm.Register, error) {
 	reg, err := vr.pb.regAlloc.Alloc()
 	if err != nil {
 		return 0, err
@@ -197,14 +173,14 @@ func (vr Variable) Ptr() (asm.Register, error) {
 	return reg, nil
 }
 
-func (vr Variable) PtrReg(reg asm.Register) {
+func (vr *Variable) PtrReg(reg asm.Register) {
 	vr.pb.insts = append(vr.pb.insts, asm.Instructions{
 		asm.Mov.Reg(reg, asm.RFP),
 		asm.Add.Imm(reg, int32(vr.Addr)),
 	}...)
 }
 
-func (vr Variable) Load(offset int) (asm.Register, error) {
+func (vr *Variable) Load(offset int) (asm.Register, error) {
 	regPtr, err := vr.pb.regAlloc.Alloc()
 	if err != nil {
 		return 0, err
@@ -224,7 +200,7 @@ func (vr Variable) Load(offset int) (asm.Register, error) {
 	return regVal, nil
 }
 
-func (vr Variable) Store(reg asm.Register) error {
+func (vr *Variable) Store(reg asm.Register) error {
 	regVal, err := vr.pb.regAlloc.Alloc()
 	if err != nil {
 		return err
@@ -796,6 +772,20 @@ func (p *ProgramBuilder) MapUpdate(mapName string, key *Variable, value *Variabl
 	return nil
 }
 
+func (p *ProgramBuilder) MapDelete(mapName string, key *Variable, ret *Variable) error {
+	key.PtrReg(asm.R2)
+
+	p.insts = append(p.insts,
+		asm.LoadMapPtr(asm.R1, 0).WithReference(mapName),
+		asm.FnMapDeleteElem.Call(),
+	)
+
+	if ret != nil {
+		return ret.Store(asm.R0)
+	}
+	return nil
+}
+
 func (p *ProgramBuilder) lastInstIdx() int {
 	return len(p.insts) - 1
 }
@@ -867,26 +857,33 @@ func (p *ProgramBuilder) NewByteArrayVar(value []byte) (*Variable, error) {
 	if err != nil {
 		return nil, err
 	}
-	variable := &Variable{Type: UInt8PtrType, Addr: addr, pb: p}
+	variable := &Variable{Type: PtrType, Addr: addr, pb: p}
 
 	p.insts = append(p.insts, insts...)
 
 	return variable, nil
 }
 
-func (p *ProgramBuilder) NewPtrVar(kind VariableType) (*Variable, error) {
-	if !kind.IsPtr() {
-		return nil, errors.New("not a pointer type")
-	}
-
+func (p *ProgramBuilder) NewPtrVar() (*Variable, error) {
 	addr, err := p.StackAlloc(int16(asm.DWord.Sizeof()))
 	if err != nil {
 		return nil, err
 	}
-	return &Variable{Type: kind, Addr: addr, pb: p}, nil
+	return &Variable{Type: PtrType, Addr: addr, pb: p}, nil
 }
 
-func (p *ProgramBuilder) NewVar(value interface{}) (*Variable, error) {
+func (p *ProgramBuilder) NewVar(kind VariableType) (*Variable, error) {
+	switch t := kind; t {
+	case Int8Type, UInt8Type, Int16Type, UInt16Type, Int32Type, UInt32Type:
+		return p.NewNumberVar(t, int32(0))
+	case PtrType:
+		return p.NewByteArrayVar(nil)
+	}
+
+	return nil, fmt.Errorf("variable type unknown")
+}
+
+func (p *ProgramBuilder) NewVarV(value interface{}) (*Variable, error) {
 	switch v := value.(type) {
 	case int8:
 		return p.NewNumberVar(Int8Type, int32(v))
@@ -900,10 +897,6 @@ func (p *ProgramBuilder) NewVar(value interface{}) (*Variable, error) {
 		return p.NewNumberVar(Int32Type, int32(v))
 	case uint32:
 		return p.NewNumberVar(UInt32Type, int32(v))
-	case int64:
-		// TODO(safchain)
-	case uint64:
-		// TODO(safchain)
 	case []byte:
 		return p.NewByteArrayVar(v)
 	case string:

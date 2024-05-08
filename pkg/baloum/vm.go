@@ -128,7 +128,7 @@ func (vm *VM) GetUint64(addr uint64) (uint64, error) {
 		return 0, err
 	}
 
-	return ByteOrder.Uint64(bytes), nil
+	return binary.NativeEndian.Uint64(bytes), nil
 }
 
 func (vm *VM) GetUint32(addr uint64) (uint32, error) {
@@ -137,7 +137,7 @@ func (vm *VM) GetUint32(addr uint64) (uint32, error) {
 		return 0, err
 	}
 
-	return ByteOrder.Uint32(bytes), nil
+	return binary.NativeEndian.Uint32(bytes), nil
 }
 
 func (vm *VM) GetUint16(addr uint64) (uint16, error) {
@@ -146,7 +146,7 @@ func (vm *VM) GetUint16(addr uint64) (uint16, error) {
 		return 0, err
 	}
 
-	return ByteOrder.Uint16(bytes), nil
+	return binary.NativeEndian.Uint16(bytes), nil
 }
 
 func (vm *VM) GetUint8(addr uint64) (uint8, error) {
@@ -173,7 +173,7 @@ func (vm *VM) SetUint64(addr uint64, value uint64) error {
 		return err
 	}
 
-	ByteOrder.PutUint64(bytes, value)
+	binary.NativeEndian.PutUint64(bytes, value)
 
 	return nil
 }
@@ -183,7 +183,7 @@ func (vm *VM) SetUint32(addr uint64, value uint32) error {
 	if err != nil {
 		return err
 	}
-	ByteOrder.PutUint32(bytes, value)
+	binary.NativeEndian.PutUint32(bytes, value)
 
 	return nil
 }
@@ -194,7 +194,7 @@ func (vm *VM) SetUint16(addr uint64, value uint16) error {
 		return err
 	}
 
-	ByteOrder.PutUint16(bytes, value)
+	binary.NativeEndian.PutUint16(bytes, value)
 
 	return nil
 }
@@ -441,7 +441,7 @@ func (vm *VM) RunInstructions(ctx Context, insts []asm.Instruction) (int64, erro
 		}
 
 		// TODO(safchain) make debugger a inst observer
-		vm.Opts.Logger.Debugf("%d > %v (%d)", pc, inst, inst.Size())
+		vm.Opts.Logger.Debugf("%d > %v [%s] (%d)", pc, inst, inst.Symbol(), inst.Size())
 		pc += int(inst.Size() / 8)
 
 		opcode := inst.OpCode
@@ -949,13 +949,13 @@ func (vm *VM) RunInstructions(ctx Context, insts []asm.Instruction) (int64, erro
 
 				switch inst.Constant {
 				case 16:
-					ByteOrder.PutUint16(buff[:2], uint16(vm.regs[inst.Dst]))
+					binary.NativeEndian.PutUint16(buff[:2], uint16(vm.regs[inst.Dst]))
 					vm.regs[inst.Dst] = uint64(bo.Uint16(buff[:2]))
 				case 32:
-					ByteOrder.PutUint32(buff[:4], uint32(vm.regs[inst.Dst]))
+					binary.NativeEndian.PutUint32(buff[:4], uint32(vm.regs[inst.Dst]))
 					vm.regs[inst.Dst] = uint64(bo.Uint32(buff[:4]))
 				case 64:
-					ByteOrder.PutUint64(buff[:8], uint64(vm.regs[inst.Dst]))
+					binary.NativeEndian.PutUint64(buff[:8], uint64(vm.regs[inst.Dst]))
 					vm.regs[inst.Dst] = uint64(bo.Uint64(buff[:8]))
 				}
 			} else {
@@ -977,6 +977,15 @@ func (vm *VM) LoadMap(name string) (*Map, error) {
 func (vm *VM) LoadMaps(names ...string) error {
 	for _, name := range names {
 		if _, err := vm.LoadMap(name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (vm *VM) LoadMaps(names ...string) error {
+	for _, name := range names {
+		if err := vm.LoadMap(name); err != nil {
 			return err
 		}
 	}

@@ -17,6 +17,7 @@ limitations under the License.
 package baloum
 
 import (
+	"encoding/binary"
 	"errors"
 )
 
@@ -31,11 +32,11 @@ func mapArrayKeyIndex(key []byte) (int, error) {
 	var idx int
 	switch len(key) {
 	case 2:
-		idx = int(ByteOrder.Uint16(key))
+		idx = int(binary.NativeEndian.Uint16(key))
 	case 4:
-		idx = int(ByteOrder.Uint32(key))
+		idx = int(binary.NativeEndian.Uint32(key))
 	case 8:
-		idx = int(ByteOrder.Uint64(key))
+		idx = int(binary.NativeEndian.Uint64(key))
 	default:
 		return 0, errors.New("incorrect key size")
 	}
@@ -81,7 +82,7 @@ func (m *MapArrayStorage) Keys() ([][]byte, error) {
 
 	for idx := range m.data {
 		key := make([]byte, 4)
-		ByteOrder.PutUint32(key, uint32(idx))
+		binary.NativeEndian.PutUint32(key, uint32(idx))
 		keys = append(keys, key)
 	}
 

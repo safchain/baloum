@@ -17,6 +17,7 @@ limitations under the License.
 package baloum
 
 import (
+	"encoding/binary"
 	"errors"
 
 	"github.com/cilium/ebpf/asm"
@@ -53,15 +54,15 @@ func (ctx *StdContext) Parse(data []byte) error {
 	}
 
 	var offset int
-	ctx.Arg0 = ByteOrder.Uint64(data[offset : offset+8])
+	ctx.Arg0 = binary.NativeEndian.Uint64(data[offset : offset+8])
 	offset += 8
-	ctx.Arg1 = ByteOrder.Uint64(data[offset : offset+8])
+	ctx.Arg1 = binary.NativeEndian.Uint64(data[offset : offset+8])
 	offset += 8
-	ctx.Arg2 = ByteOrder.Uint64(data[offset : offset+8])
+	ctx.Arg2 = binary.NativeEndian.Uint64(data[offset : offset+8])
 	offset += 8
-	ctx.Arg3 = ByteOrder.Uint64(data[offset : offset+8])
+	ctx.Arg3 = binary.NativeEndian.Uint64(data[offset : offset+8])
 	offset += 8
-	ctx.Arg4 = ByteOrder.Uint64(data[offset : offset+8])
+	ctx.Arg4 = binary.NativeEndian.Uint64(data[offset : offset+8])
 
 	return nil
 }
