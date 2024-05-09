@@ -873,6 +873,10 @@ func TestBuilderMap(t *testing.T) {
 		valuePtr, _ := builder.NewPtrVar()
 
 		builder.MapLookup("map1", key, valuePtr)
+		builder.IfThenElse(builder.IsNull(valuePtr), func() error {
+			builder.Return(0)
+			return nil
+		}, nil)
 
 		value, _ := valuePtr.Deref(UInt32Type, 0)
 		builder.Printk("value: %d", value)
@@ -886,7 +890,7 @@ func TestBuilderMap(t *testing.T) {
 			assert.True(t, updated)
 			assert.Nil(t, err)
 		}, func(_ *VM, output string) {
-			assert.Equal(t, "value: 44", output)
+			assert.Equal(t, "value: 45", output)
 		})
 	})
 

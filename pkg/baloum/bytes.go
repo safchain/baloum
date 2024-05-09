@@ -37,8 +37,6 @@ func ToBytes(obj interface{}, size int) ([]byte, error) {
 		if len(b) != size {
 			return nil, fmt.Errorf("data size error : size mismatch, %d vs %d", len(b), size)
 		}
-		fmt.Printf("BBBBBBBBBBBBBb: %+v\n", b)
-
 		return b, nil
 	}
 

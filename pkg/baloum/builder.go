@@ -134,7 +134,7 @@ func (vr *Variable) Sizeof() asm.Size {
 	return vr.Type.Sizeof()
 }
 
-func (vr *Variable) Deref(vt VariableType, offset int16) (*Variable, error) {
+func (vr *Variable) Deref(vt VariableType, offset int) (*Variable, error) {
 	if !vr.IsPtr() {
 		return nil, errors.New("invalid variable type")
 	}
@@ -151,9 +151,9 @@ func (vr *Variable) Deref(vt VariableType, offset int16) (*Variable, error) {
 	defer vr.pb.regAlloc.Free(reg1, reg2)
 
 	vr.pb.insts = append(vr.pb.insts, asm.Instructions{
-		asm.LoadMem(reg1, asm.RFP, vr.Addr, vr.Sizeof()),
-		asm.LoadMem(reg2, reg1, offset, derefVar.Sizeof()),
-		asm.StoreMem(asm.RFP, derefVar.Addr, reg2, derefVar.Sizeof()),
+		asm.LoadMem(reg1, asm.RFP, vr.addr, vr.Sizeof()),
+		asm.LoadMem(reg2, reg1, int16(offset), derefVar.Sizeof()),
+		asm.StoreMem(asm.RFP, derefVar.addr, reg2, derefVar.Sizeof()),
 	}...)
 
 	return derefVar, nil
@@ -164,11 +164,7 @@ func (vr *Variable) Ptr() (asm.Register, error) {
 	if err != nil {
 		return 0, err
 	}
-
-	vr.pb.insts = append(vr.pb.insts, asm.Instructions{
-		asm.Mov.Reg(reg, asm.RFP),
-		asm.Add.Imm(reg, int32(vr.Addr)),
-	}...)
+	vr.PtrReg(reg)
 
 	return reg, nil
 }
@@ -452,11 +448,11 @@ func (p *ProgramBuilder) Printk(format string, args ...interface{}) error {
 			if arg.IsPtr() {
 				p.insts = append(p.insts,
 					asm.Mov.Reg(reg, asm.RFP),
-					asm.Add.Imm(reg, int32(arg.Addr)),
+					asm.Add.Imm(reg, int32(arg.addr)),
 				)
 			} else {
 				p.insts = append(p.insts,
-					asm.LoadMem(reg, asm.RFP, arg.Addr, arg.Sizeof()),
+					asm.LoadMem(reg, asm.RFP, arg.addr, arg.Sizeof()),
 				)
 			}
 		case nil:
@@ -561,7 +557,7 @@ func (p *ProgramBuilder) StrCmp(var1 *Variable, var2 *Variable, unroll int) Cond
 			return err
 		}
 
-		addr1, addr2 := var1.Addr, var2.Addr
+		addr1, addr2 := var1.addr, var2.addr
 
 		for i := 0; i != unroll; i++ {
 			// stack overflow

@@ -210,7 +210,7 @@ func (d *Debugger) printVariable(vm *baloum.VM, args ...string) {
 	fmt.Printf(">> %v\n", reader.Read(bytes))
 }
 
-func (d *Debugger) printBacktrace(vm *baloum.VM) {
+func (d *Debugger) printBacktrace() {
 	for _, bt := range d.backtrace {
 		fmt.Printf("%d: %v\n", bt.PC, bt.Inst)
 	}
@@ -269,7 +269,7 @@ LOOP:
 		d.printData(vm, args...)
 		goto LOOP
 	case PrintBacktraceCommand:
-		d.printBacktrace(vm)
+		d.printBacktrace()
 		goto LOOP
 	case PrintMap:
 		d.printMap(vm, args...)
