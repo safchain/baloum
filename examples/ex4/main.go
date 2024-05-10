@@ -36,25 +36,25 @@ func run(test bool) {
 	defer debugger.Close()
 
 	var prog baloum.Program
-	editor := prog.Edit(baloum.ProgramBuilderOpts{})
+	pb := prog.Edit(baloum.ProgramBuilderOpts{})
 
-	key, _ := editor.NewVar(uint32(1))
-	value, _ := editor.NewVar(uint32(77))
-	ret, _ := editor.NewVar(uint32(0))
+	key, _ := pb.NewVarV(uint32(1))
+	value, _ := pb.NewVarV(uint64(77))
+	ret, _ := pb.NewVarV(uint32(0))
 
-	editor.MapUpdate("map2", key, value, ret, baloum.BPF_ANY)
+	pb.MapUpdate("map1", key, value, ret, baloum.BPF_ANY)
 
-	valuePtr, _ := editor.NewPtrVar(baloum.UInt32PtrType)
+	valuePtr, _ := pb.NewPtrVar()
 
-	editor.MapLookup("map2", key, valuePtr)
-	editor.IfThenElse(editor.IsNotNull(valuePtr), func() error {
-		value, _ = valuePtr.Deref()
-		return editor.Printk("value: %d", value)
+	pb.MapLookup("map1", key, valuePtr)
+	pb.IfThenElse(pb.IsNotNull(valuePtr), func() error {
+		value, _ = valuePtr.Deref(baloum.UInt64Type, 0)
+		return pb.Printk("value: %d", value)
 	}, nil)
 
-	editor.Return(0)
+	pb.Return(0)
 
-	editor.Commit()
+	pb.Commit()
 
 	if err := prog.Prepare(4096); err != nil {
 		suggar.Panicf("unexpected error: %v", err)
@@ -75,14 +75,7 @@ func run(test bool) {
 				Name:       "map1",
 				Type:       ebpf.Array,
 				KeySize:    4,
-				ValueSize:  4,
-				MaxEntries: 10,
-			},
-			"map2": {
-				Name:       "map2",
-				Type:       ebpf.Array,
-				KeySize:    4,
-				ValueSize:  4,
+				ValueSize:  8,
 				MaxEntries: 10,
 			},
 		},
@@ -114,9 +107,8 @@ func run(test bool) {
 
 		vm := baloum.NewVM(spec, baloum.Opts{Fncs: fncs, Observer: debugger})
 		vm.LoadMap("map1")
-		vm.LoadMap("map2")
 
-		vm.Map("map2").Update(uint32(1), uint32(44), baloum.BPF_ANY)
+		vm.Map("map1").Update(uint32(1), uint32(44), baloum.BPF_ANY)
 
 		var ctx baloum.StdContext
 

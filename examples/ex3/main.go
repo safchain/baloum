@@ -36,24 +36,24 @@ func run(test bool) {
 	defer debugger.Close()
 
 	var prog baloum.Program
-	editor := prog.Edit(baloum.ProgramEditorOpts{})
+	editor := prog.Edit(baloum.ProgramBuilderOpts{})
 
-	var1, err := editor.NewVar(uint32(55))
+	var1, err := editor.NewVarV(uint32(55))
 	if err != nil {
 		suggar.Panicf("unexpected error: %v", err)
 	}
 
-	var2, err := editor.NewVar(uint32(88))
+	var2, err := editor.NewVarV(uint32(88))
 	if err != nil {
 		suggar.Panicf("unexpected error: %v", err)
 	}
 
-	var3, err := editor.NewVar("test123")
+	var3, err := editor.NewVarV("test123")
 	if err != nil {
 		suggar.Panicf("unexpected error: %v", err)
 	}
 
-	var4, err := editor.NewVar("test123")
+	var4, err := editor.NewVarV("test123")
 	if err != nil {
 		suggar.Panicf("unexpected error: %v", err)
 	}

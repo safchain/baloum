@@ -61,7 +61,7 @@ func (p *Program) Prepare(instLimit int) error {
 func (p *Program) VerifyDag() error {
 	var offsets []int
 
-	for i := 0; i != len(p.insts); i++ {
+	for i := 0; i < len(p.insts); i++ {
 		inst := p.insts[i]
 
 		if slices.Contains(offsets, i) {

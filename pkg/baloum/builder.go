@@ -99,7 +99,7 @@ func (vt VariableType) IsPtr() bool {
 	return vt == PtrType
 }
 
-func (vt VariableType) Sizeof() asm.Size {
+func (vt VariableType) AsmSizeof() asm.Size {
 	switch vt {
 	case Int8Type, UInt8Type:
 		return asm.Byte
@@ -109,18 +109,21 @@ func (vt VariableType) Sizeof() asm.Size {
 		return asm.Word
 	case Int64Type, UInt64Type:
 		return asm.DWord
-	}
-
-	if vt.IsPtr() {
+	case PtrType:
 		return asm.DWord
 	}
-
 	return asm.InvalidSize
+}
+
+func (vt VariableType) Sizeof() int {
+	return vt.AsmSizeof().Sizeof()
 }
 
 type Variable struct {
 	Type VariableType
-	Addr int16
+
+	// storage
+	addr int16
 
 	// internals
 	pb *ProgramBuilder
@@ -130,7 +133,11 @@ func (vr *Variable) IsPtr() bool {
 	return vr.Type.IsPtr()
 }
 
-func (vr *Variable) Sizeof() asm.Size {
+func (vr *Variable) AsmSizeof() asm.Size {
+	return vr.Type.AsmSizeof()
+}
+
+func (vr *Variable) Sizeof() int {
 	return vr.Type.Sizeof()
 }
 
@@ -151,9 +158,9 @@ func (vr *Variable) Deref(vt VariableType, offset int) (*Variable, error) {
 	defer vr.pb.regAlloc.Free(reg1, reg2)
 
 	vr.pb.insts = append(vr.pb.insts, asm.Instructions{
-		asm.LoadMem(reg1, asm.RFP, vr.addr, vr.Sizeof()),
-		asm.LoadMem(reg2, reg1, int16(offset), derefVar.Sizeof()),
-		asm.StoreMem(asm.RFP, derefVar.addr, reg2, derefVar.Sizeof()),
+		asm.LoadMem(reg1, asm.RFP, vr.addr, vr.AsmSizeof()),
+		asm.LoadMem(reg2, reg1, int16(offset), derefVar.AsmSizeof()),
+		asm.StoreMem(asm.RFP, derefVar.addr, reg2, derefVar.AsmSizeof()),
 	}...)
 
 	return derefVar, nil
@@ -172,40 +179,26 @@ func (vr *Variable) Ptr() (asm.Register, error) {
 func (vr *Variable) PtrReg(reg asm.Register) {
 	vr.pb.insts = append(vr.pb.insts, asm.Instructions{
 		asm.Mov.Reg(reg, asm.RFP),
-		asm.Add.Imm(reg, int32(vr.Addr)),
+		asm.Add.Imm(reg, int32(vr.addr)),
 	}...)
 }
 
 func (vr *Variable) Load(offset int) (asm.Register, error) {
-	regPtr, err := vr.pb.regAlloc.Alloc()
-	if err != nil {
-		return 0, err
-	}
-	defer vr.pb.regAlloc.Free(regPtr)
-
 	regVal, err := vr.pb.regAlloc.Alloc()
 	if err != nil {
 		return 0, err
 	}
 
 	vr.pb.insts = append(vr.pb.insts, asm.Instructions{
-		asm.Mov.Reg(regPtr, asm.RFP),
-		asm.LoadMem(regVal, regPtr, vr.Addr+int16(offset), vr.Sizeof()),
+		asm.LoadMem(regVal, asm.RFP, vr.addr+int16(offset), vr.AsmSizeof()),
 	}...)
 
 	return regVal, nil
 }
 
 func (vr *Variable) Store(reg asm.Register) error {
-	regVal, err := vr.pb.regAlloc.Alloc()
-	if err != nil {
-		return err
-	}
-	defer vr.pb.regAlloc.Free(regVal)
-
 	vr.pb.insts = append(vr.pb.insts, asm.Instructions{
-		asm.Mov.Reg(regVal, asm.RFP),
-		asm.StoreMem(regVal, int16(vr.Addr), reg, asm.DWord),
+		asm.StoreMem(asm.RFP, int16(vr.addr), reg, asm.DWord),
 	}...)
 
 	return nil
@@ -452,7 +445,7 @@ func (p *ProgramBuilder) Printk(format string, args ...interface{}) error {
 				)
 			} else {
 				p.insts = append(p.insts,
-					asm.LoadMem(reg, asm.RFP, arg.addr, arg.Sizeof()),
+					asm.LoadMem(reg, asm.RFP, arg.addr, arg.AsmSizeof()),
 				)
 			}
 		case nil:
@@ -680,7 +673,7 @@ func (p *ProgramBuilder) Equal(var1 interface{}, var2 interface{}) Condition {
 					asm.JEq.Reg(regVal1, regVal2, trueSym),
 					asm.Ja.Label(falseSym),
 				)
-			case int8, uint8, int16, uint16, int32, uint32, int64, uint64:
+			case int8, uint8, int16, uint16, int32, uint32:
 				val2, err := ToInt32(v2)
 				if err != nil {
 					return err
@@ -695,10 +688,26 @@ func (p *ProgramBuilder) Equal(var1 interface{}, var2 interface{}) Condition {
 					asm.JEq.Imm(regVal1, val2, trueSym),
 					asm.Ja.Label(falseSym),
 				)
+			case int64, uint64:
+				val2, err := ToInt64(v2)
+				if err != nil {
+					return err
+				}
+
+				regVal1, err = v1.Load(0)
+				if err != nil {
+					return err
+				}
+
+				p.insts = append(p.insts,
+					asm.LoadImm(regVal2, val2, asm.DWord),
+					asm.JEq.Reg(regVal1, regVal2, trueSym),
+					asm.Ja.Label(falseSym),
+				)
 			default:
 				return errors.New("unknown type")
 			}
-		case int8, uint8, int16, uint16, int32, uint32, int64, uint64:
+		case int8, uint8, int16, uint16, int32, uint32:
 			val1, err := ToInt32(v1)
 			if err != nil {
 				return err
@@ -724,6 +733,39 @@ func (p *ProgramBuilder) Equal(var1 interface{}, var2 interface{}) Condition {
 				p.insts = append(p.insts,
 					asm.Mov.Imm(asm.R2, val1),
 					asm.JEq.Imm(asm.R2, val2, trueSym),
+					asm.Ja.Label(falseSym),
+				)
+			default:
+				return errors.New("unknown type")
+			}
+		case int64, uint64:
+			val1, err := ToInt64(v1)
+			if err != nil {
+				return err
+			}
+
+			switch v2 := var2.(type) {
+			case *Variable:
+				regVal2, err = v2.Load(0)
+				if err != nil {
+					return err
+				}
+
+				p.insts = append(p.insts,
+					asm.LoadImm(regVal1, val1, asm.DWord),
+					asm.JEq.Reg(regVal2, regVal1, trueSym),
+					asm.Ja.Label(falseSym),
+				)
+			case int8, uint8, int16, uint16, int32, uint32, int64, uint64:
+				val2, err := ToInt64(v2)
+				if err != nil {
+					return err
+				}
+
+				p.insts = append(p.insts,
+					asm.LoadImm(regVal1, val1, asm.DWord),
+					asm.LoadImm(regVal2, val2, asm.DWord),
+					asm.JEq.Reg(regVal2, regVal1, trueSym),
 					asm.Ja.Label(falseSym),
 				)
 			default:
@@ -827,12 +869,12 @@ func (p *ProgramBuilder) IfThenElse(cond Condition, then func() error, els func(
 	return nil
 }
 
-func (p *ProgramBuilder) NewNumberVar(kind VariableType, value int32) (*Variable, error) {
+func (p *ProgramBuilder) NewNumberVar(kind VariableType, value int64) (*Variable, error) {
 	addr, err := p.StackAlloc(int16(asm.DWord.Sizeof()))
 	if err != nil {
 		return nil, err
 	}
-	variable := &Variable{Type: kind, Addr: addr, pb: p}
+	variable := &Variable{Type: kind, addr: addr, pb: p}
 
 	regValue, err := p.regAlloc.Alloc()
 	if err != nil {
@@ -840,10 +882,18 @@ func (p *ProgramBuilder) NewNumberVar(kind VariableType, value int32) (*Variable
 	}
 	defer p.regAlloc.Free(regValue)
 
-	p.insts = append(p.insts,
-		asm.Mov.Imm(regValue, value),
-		asm.StoreMem(asm.RFP, addr, regValue, asm.DWord),
-	)
+	switch kind {
+	case Int64Type, UInt64Type:
+		p.insts = append(p.insts,
+			asm.LoadImm(regValue, value, asm.DWord),
+			asm.StoreMem(asm.RFP, addr, regValue, asm.DWord),
+		)
+	default:
+		p.insts = append(p.insts,
+			asm.Mov.Imm(regValue, int32(value)),
+			asm.StoreMem(asm.RFP, addr, regValue, asm.DWord),
+		)
+	}
 
 	return variable, nil
 }
@@ -853,7 +903,7 @@ func (p *ProgramBuilder) NewByteArrayVar(value []byte) (*Variable, error) {
 	if err != nil {
 		return nil, err
 	}
-	variable := &Variable{Type: PtrType, Addr: addr, pb: p}
+	variable := &Variable{Type: PtrType, addr: addr, pb: p}
 
 	p.insts = append(p.insts, insts...)
 
@@ -865,13 +915,13 @@ func (p *ProgramBuilder) NewPtrVar() (*Variable, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Variable{Type: PtrType, Addr: addr, pb: p}, nil
+	return &Variable{Type: PtrType, addr: addr, pb: p}, nil
 }
 
 func (p *ProgramBuilder) NewVar(kind VariableType) (*Variable, error) {
 	switch t := kind; t {
-	case Int8Type, UInt8Type, Int16Type, UInt16Type, Int32Type, UInt32Type:
-		return p.NewNumberVar(t, int32(0))
+	case Int8Type, UInt8Type, Int16Type, UInt16Type, Int32Type, UInt32Type, Int64Type, UInt64Type:
+		return p.NewNumberVar(t, 0)
 	case PtrType:
 		return p.NewByteArrayVar(nil)
 	}
@@ -882,17 +932,21 @@ func (p *ProgramBuilder) NewVar(kind VariableType) (*Variable, error) {
 func (p *ProgramBuilder) NewVarV(value interface{}) (*Variable, error) {
 	switch v := value.(type) {
 	case int8:
-		return p.NewNumberVar(Int8Type, int32(v))
+		return p.NewNumberVar(Int8Type, int64(v))
 	case uint8:
-		return p.NewNumberVar(UInt8Type, int32(v))
+		return p.NewNumberVar(UInt8Type, int64(v))
 	case int16:
-		return p.NewNumberVar(Int16Type, int32(v))
+		return p.NewNumberVar(Int16Type, int64(v))
 	case uint16:
-		return p.NewNumberVar(UInt16Type, int32(v))
+		return p.NewNumberVar(UInt16Type, int64(v))
 	case int32:
-		return p.NewNumberVar(Int32Type, int32(v))
+		return p.NewNumberVar(Int32Type, int64(v))
 	case uint32:
-		return p.NewNumberVar(UInt32Type, int32(v))
+		return p.NewNumberVar(UInt32Type, int64(v))
+	case int64:
+		return p.NewNumberVar(Int64Type, v)
+	case uint64:
+		return p.NewNumberVar(UInt64Type, int64(v))
 	case []byte:
 		return p.NewByteArrayVar(v)
 	case string:

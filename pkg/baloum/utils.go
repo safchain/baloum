@@ -45,23 +45,28 @@ func Bytes2String(data []byte) string {
 }
 
 func ToInt32(value interface{}) (int32, error) {
+	i, err := ToInt64(value)
+	return int32(i), err
+}
+
+func ToInt64(value interface{}) (int64, error) {
 	switch v := value.(type) {
 	case int8:
-		return int32(v), nil
+		return int64(v), nil
 	case uint8:
-		return int32(v), nil
+		return int64(v), nil
 	case int16:
-		return int32(v), nil
+		return int64(v), nil
 	case uint16:
-		return int32(v), nil
+		return int64(v), nil
 	case int32:
-		return int32(v), nil
+		return int64(v), nil
 	case uint32:
-		return int32(v), nil
+		return int64(v), nil
 	case int64:
-		return int32(v), nil
+		return int64(v), nil
 	case uint64:
-		return int32(v), nil
+		return int64(v), nil
 	}
 	return 0, errors.New("unknown type")
 }

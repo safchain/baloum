@@ -460,6 +460,55 @@ func TestBuilderCond(t *testing.T) {
 		})
 	})
 
+	t.Run("equal-ok-3", func(t *testing.T) {
+		var prog Program
+		builder := prog.Edit(ProgramBuilderOpts{})
+
+		var1, _ := builder.NewVarV(uint64(44444444444))
+
+		builder.IfThenElse(
+			builder.Equal(var1, uint64(44444444444)),
+			func() error {
+				return builder.Printk("ok")
+			},
+			func() error {
+				return builder.Printk("ko")
+			},
+		)
+		builder.Return(0)
+
+		builder.Commit()
+
+		runProg(t, &prog, nil, func(_ *VM, output string) {
+			assert.Equal(t, "ok", output)
+		})
+	})
+
+	t.Run("equal-ok-4", func(t *testing.T) {
+		var prog Program
+		builder := prog.Edit(ProgramBuilderOpts{})
+
+		var1, _ := builder.NewVarV(uint64(44444444444))
+		var2, _ := builder.NewVarV(uint64(44444444444))
+
+		builder.IfThenElse(
+			builder.Equal(var1, var2),
+			func() error {
+				return builder.Printk("ok")
+			},
+			func() error {
+				return builder.Printk("ko")
+			},
+		)
+		builder.Return(0)
+
+		builder.Commit()
+
+		runProg(t, &prog, nil, func(_ *VM, output string) {
+			assert.Equal(t, "ok", output)
+		})
+	})
+
 	t.Run("equal-ko-1", func(t *testing.T) {
 		var prog Program
 		builder := prog.Edit(ProgramBuilderOpts{})
@@ -890,7 +939,7 @@ func TestBuilderMap(t *testing.T) {
 			assert.True(t, updated)
 			assert.Nil(t, err)
 		}, func(_ *VM, output string) {
-			assert.Equal(t, "value: 45", output)
+			assert.Equal(t, "value: 44", output)
 		})
 	})
 
@@ -984,8 +1033,20 @@ func TestBuilderMarshal(t *testing.T) {
 
 		builder.MapLookup("map3", key, valuePtr)
 
-		value, _ := valuePtr.Deref(UInt32Type, 8)
-		builder.Printk("value: %d", value)
+		mountID, err := valuePtr.Deref(UInt64Type, 0)
+		assert.Nil(t, err)
+
+		inode, err := valuePtr.Deref(UInt32Type, UInt64Type.Sizeof())
+		assert.Nil(t, err)
+
+		builder.IfThenElse(builder.And(
+			builder.Equal(mountID, uint64(108)), builder.Equal(inode, uint32(90))),
+			func() error {
+				builder.Printk("mount_id: %d, inode: %d", mountID, inode)
+				return nil
+			},
+			nil,
+		)
 
 		builder.Return(0)
 
@@ -996,7 +1057,7 @@ func TestBuilderMarshal(t *testing.T) {
 			assert.True(t, updated)
 			assert.Nil(t, err)
 		}, func(_ *VM, output string) {
-			assert.Equal(t, "value: 90", output)
+			assert.Equal(t, "mount_id: 108, inode: 90", output)
 		})
 	})
 }
