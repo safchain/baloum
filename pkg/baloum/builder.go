@@ -631,22 +631,22 @@ func (p *ProgramBuilder) Or(conds ...Condition) Condition {
 	}
 }
 
-func (p *ProgramBuilder) IsNull(var1 interface{}) Condition {
+func (p *ProgramBuilder) IsNull(var1 *Variable) Condition {
 	return p.Equal(var1, uint32(0))
 }
 
-func (p *ProgramBuilder) IsNotNull(var1 interface{}) Condition {
+func (p *ProgramBuilder) IsNotNull(var1 *Variable) Condition {
 	return p.NotEqual(var1, uint32(0))
 }
 
-func (p *ProgramBuilder) NotEqual(var1 interface{}, var2 interface{}) Condition {
+func (p *ProgramBuilder) NotEqual(var1 *Variable, var2 interface{}) Condition {
 	fnc := p.Equal(var1, var2)
 	return func(trueSym, falseSym string) error {
 		return fnc(falseSym, trueSym)
 	}
 }
 
-func (p *ProgramBuilder) Equal(var1 interface{}, var2 interface{}) Condition {
+func (p *ProgramBuilder) Equal(var1 *Variable, var2 interface{}) Condition {
 	return func(trueSym string, falseSym string) error {
 		var (
 			regVal1 asm.Register
@@ -655,122 +655,43 @@ func (p *ProgramBuilder) Equal(var1 interface{}, var2 interface{}) Condition {
 		)
 		defer p.regAlloc.Free(regVal1, regVal2)
 
-		switch v1 := var1.(type) {
+		regVal1, err = var1.Load(0)
+		if err != nil {
+			return err
+		}
+
+		switch v2 := var2.(type) {
 		case *Variable:
-			switch v2 := var2.(type) {
-			case *Variable:
-				regVal1, err = v1.Load(0)
-				if err != nil {
-					return err
-				}
-
-				regVal2, err = v2.Load(0)
-				if err != nil {
-					return err
-				}
-
-				p.insts = append(p.insts,
-					asm.JEq.Reg(regVal1, regVal2, trueSym),
-					asm.Ja.Label(falseSym),
-				)
-			case int8, uint8, int16, uint16, int32, uint32:
-				val2, err := ToInt32(v2)
-				if err != nil {
-					return err
-				}
-
-				regVal1, err = v1.Load(0)
-				if err != nil {
-					return err
-				}
-
-				p.insts = append(p.insts,
-					asm.JEq.Imm(regVal1, val2, trueSym),
-					asm.Ja.Label(falseSym),
-				)
-			case int64, uint64:
-				val2, err := ToInt64(v2)
-				if err != nil {
-					return err
-				}
-
-				regVal1, err = v1.Load(0)
-				if err != nil {
-					return err
-				}
-
-				p.insts = append(p.insts,
-					asm.LoadImm(regVal2, val2, asm.DWord),
-					asm.JEq.Reg(regVal1, regVal2, trueSym),
-					asm.Ja.Label(falseSym),
-				)
-			default:
-				return errors.New("unknown type")
+			regVal2, err = v2.Load(0)
+			if err != nil {
+				return err
 			}
+
+			p.insts = append(p.insts,
+				asm.JEq.Reg(regVal1, regVal2, trueSym),
+				asm.Ja.Label(falseSym),
+			)
 		case int8, uint8, int16, uint16, int32, uint32:
-			val1, err := ToInt32(v1)
+			val2, err := ToInt32(v2)
 			if err != nil {
 				return err
 			}
 
-			switch v2 := var2.(type) {
-			case *Variable:
-				regVal2, err = v2.Load(0)
-				if err != nil {
-					return err
-				}
-
-				p.insts = append(p.insts,
-					asm.JEq.Imm(regVal2, val1, trueSym),
-					asm.Ja.Label(falseSym),
-				)
-			case int8, uint8, int16, uint16, int32, uint32, int64, uint64:
-				val2, err := ToInt32(v2)
-				if err != nil {
-					return err
-				}
-
-				p.insts = append(p.insts,
-					asm.Mov.Imm(asm.R2, val1),
-					asm.JEq.Imm(asm.R2, val2, trueSym),
-					asm.Ja.Label(falseSym),
-				)
-			default:
-				return errors.New("unknown type")
-			}
+			p.insts = append(p.insts,
+				asm.JEq.Imm(regVal1, val2, trueSym),
+				asm.Ja.Label(falseSym),
+			)
 		case int64, uint64:
-			val1, err := ToInt64(v1)
+			val2, err := ToInt64(v2)
 			if err != nil {
 				return err
 			}
 
-			switch v2 := var2.(type) {
-			case *Variable:
-				regVal2, err = v2.Load(0)
-				if err != nil {
-					return err
-				}
-
-				p.insts = append(p.insts,
-					asm.LoadImm(regVal1, val1, asm.DWord),
-					asm.JEq.Reg(regVal2, regVal1, trueSym),
-					asm.Ja.Label(falseSym),
-				)
-			case int8, uint8, int16, uint16, int32, uint32, int64, uint64:
-				val2, err := ToInt64(v2)
-				if err != nil {
-					return err
-				}
-
-				p.insts = append(p.insts,
-					asm.LoadImm(regVal1, val1, asm.DWord),
-					asm.LoadImm(regVal2, val2, asm.DWord),
-					asm.JEq.Reg(regVal2, regVal1, trueSym),
-					asm.Ja.Label(falseSym),
-				)
-			default:
-				return errors.New("unknown type")
-			}
+			p.insts = append(p.insts,
+				asm.LoadImm(regVal2, val2, asm.DWord),
+				asm.JEq.Reg(regVal1, regVal2, trueSym),
+				asm.Ja.Label(falseSym),
+			)
 		default:
 			return errors.New("unknown type")
 		}
