@@ -31,75 +31,75 @@ func TestBuilderStack(t *testing.T) {
 	t.Run("success1", func(t *testing.T) {
 		builder := NewProgramBuilder(nil, ProgramBuilderOpts{})
 
-		addr, err := builder.StackAlloc(512)
-		assert.Nil(t, err)
+		addr := builder.stackAlloc(512)
+		assert.Nil(t, builder.Error())
 		assert.Equal(t, int16(-512), addr)
 	})
 
 	t.Run("full-one-block", func(t *testing.T) {
 		builder := NewProgramBuilder(nil, ProgramBuilderOpts{})
 
-		addr, err := builder.StackAlloc(512)
-		assert.Nil(t, err)
+		addr := builder.stackAlloc(512)
+		assert.Nil(t, builder.Error())
 		assert.Equal(t, int16(-512), addr)
 
-		_, err = builder.StackAlloc(1)
-		assert.NotNil(t, err)
+		builder.stackAlloc(1)
+		assert.NotNil(t, builder.Error())
 	})
 
 	t.Run("one-block-reuse", func(t *testing.T) {
 		builder := NewProgramBuilder(nil, ProgramBuilderOpts{})
 
-		addr, err := builder.StackAlloc(512)
-		assert.Nil(t, err)
+		addr := builder.stackAlloc(512)
+		assert.Nil(t, builder.Error())
 		assert.Equal(t, int16(-512), addr)
 
-		builder.StackFree(addr)
+		builder.stackFree(addr)
 
-		addr, err = builder.StackAlloc(512)
-		assert.Nil(t, err)
+		addr = builder.stackAlloc(512)
+		assert.Nil(t, builder.Error())
 		assert.Equal(t, int16(-512), addr)
 	})
 
 	t.Run("two-blocks", func(t *testing.T) {
 		builder := NewProgramBuilder(nil, ProgramBuilderOpts{})
 
-		addr, err := builder.StackAlloc(256)
-		assert.Nil(t, err)
+		addr := builder.stackAlloc(256)
+		assert.Nil(t, builder.Error())
 		assert.Equal(t, int16(-256), addr)
 
-		addr, err = builder.StackAlloc(256)
-		assert.Nil(t, err)
+		addr = builder.stackAlloc(256)
+		assert.Nil(t, builder.Error())
 		assert.Equal(t, int16(-512), addr)
 	})
 
 	t.Run("three-blocks-with-free", func(t *testing.T) {
 		builder := NewProgramBuilder(nil, ProgramBuilderOpts{})
 
-		addr1, err := builder.StackAlloc(256)
-		assert.Nil(t, err)
+		addr1 := builder.stackAlloc(256)
+		assert.Nil(t, builder.Error())
 		assert.Equal(t, int16(-256), addr1)
 
-		addr2, err := builder.StackAlloc(256)
-		assert.Nil(t, err)
+		addr2 := builder.stackAlloc(256)
+		assert.Nil(t, builder.Error())
 		assert.Equal(t, int16(-512), addr2)
 
-		builder.StackFree(addr1)
+		builder.stackFree(addr1)
 
-		addr3, err := builder.StackAlloc(128)
-		assert.Nil(t, err)
+		addr3 := builder.stackAlloc(128)
+		assert.Nil(t, builder.Error())
 		assert.Equal(t, int16(-128), addr3)
 
-		addr4, err := builder.StackAlloc(32)
-		assert.Nil(t, err)
+		addr4 := builder.stackAlloc(32)
+		assert.Nil(t, builder.Error())
 		assert.Equal(t, int16(-160), addr4)
 
-		addr5, err := builder.StackAlloc(32)
-		assert.Nil(t, err)
+		addr5 := builder.stackAlloc(32)
+		assert.Nil(t, builder.Error())
 		assert.Equal(t, int16(-192), addr5)
 
-		_, err = builder.StackAlloc(65)
-		assert.NotNil(t, err)
+		builder.stackAlloc(65)
+		assert.NotNil(t, builder.Error())
 	})
 }
 
@@ -206,13 +206,14 @@ func TestBuilderPrintk(t *testing.T) {
 		var prog Program
 		builder := prog.Edit(ProgramBuilderOpts{})
 
-		var1, _ := builder.NewVarV(uint32(55))
-		var2, _ := builder.NewVarV(uint32(88))
-		var3, _ := builder.NewVarV("test")
+		var1 := builder.NewVarV(uint32(55))
+		var2 := builder.NewVarV(uint32(88))
+		var3 := builder.NewVarV("test")
 		builder.Printk("this is a printk test, values: %d %d %s", var1, var2, var3)
 		builder.Return(0)
 
-		builder.Commit()
+		err := builder.Commit()
+		assert.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "this is a printk test, values: 55 88 test", output)
@@ -228,16 +229,17 @@ func TestBuilderCond(t *testing.T) {
 
 		builder.IfThenElse(
 			builder.True(),
-			func() error {
-				return builder.Printk("ok")
+			func() {
+				builder.Printk("ok")
 			},
-			func() error {
-				return builder.Printk("ko")
+			func() {
+				builder.Printk("ko")
 			},
 		)
 		builder.Return(0)
 
-		builder.Commit()
+		err := builder.Commit()
+		assert.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
@@ -250,16 +252,17 @@ func TestBuilderCond(t *testing.T) {
 
 		builder.IfThenElse(
 			builder.False(),
-			func() error {
-				return builder.Printk("ok")
+			func() {
+				builder.Printk("ok")
 			},
-			func() error {
-				return builder.Printk("ko")
+			func() {
+				builder.Printk("ko")
 			},
 		)
 		builder.Return(0)
 
-		builder.Commit()
+		err := builder.Commit()
+		assert.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
@@ -272,16 +275,16 @@ func TestBuilderCond(t *testing.T) {
 
 		builder.IfThenElse(
 			builder.True(),
-			func() error {
-				return nil
+			func() {
 			},
-			func() error {
-				return builder.Printk("ko")
+			func() {
+				builder.Printk("ko")
 			},
 		)
 		builder.Return(0)
 
-		builder.Commit()
+		err := builder.Commit()
+		assert.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "", output)
@@ -294,16 +297,16 @@ func TestBuilderCond(t *testing.T) {
 
 		builder.IfThenElse(
 			builder.False(),
-			func() error {
-				return nil
+			func() {
 			},
-			func() error {
-				return builder.Printk("ko")
+			func() {
+				builder.Printk("ko")
 			},
 		)
 		builder.Return(0)
 
-		builder.Commit()
+		err := builder.Commit()
+		assert.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
@@ -316,16 +319,15 @@ func TestBuilderCond(t *testing.T) {
 
 		builder.IfThenElse(
 			builder.True(),
-			func() error {
-				return nil
+			func() {
 			},
-			func() error {
-				return nil
+			func() {
 			},
 		)
 		builder.Return(0)
 
-		builder.Commit()
+		err := builder.Commit()
+		assert.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 		})
@@ -337,16 +339,16 @@ func TestBuilderCond(t *testing.T) {
 
 		builder.IfThenElse(
 			builder.True(),
-			func() error {
-				return builder.Printk("ok")
+			func() {
+				builder.Printk("ok")
 			},
-			func() error {
-				return nil
+			func() {
 			},
 		)
 		builder.Return(0)
 
-		builder.Commit()
+		err := builder.Commit()
+		assert.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
@@ -359,22 +361,23 @@ func TestBuilderCond(t *testing.T) {
 
 		builder.IfThenElse(
 			builder.True(),
-			func() error {
-				return builder.IfThenElse(
+			func() {
+				builder.IfThenElse(
 					builder.True(),
-					func() error {
-						return builder.Printk("ok")
+					func() {
+						builder.Printk("ok")
 					},
 					nil,
 				)
 			},
-			func() error {
-				return builder.Printk("ko")
+			func() {
+				builder.Printk("ko")
 			},
 		)
 		builder.Return(0)
 
-		builder.Commit()
+		err := builder.Commit()
+		assert.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
@@ -387,24 +390,25 @@ func TestBuilderCond(t *testing.T) {
 
 		builder.IfThenElse(
 			builder.True(),
-			func() error {
-				return builder.IfThenElse(
+			func() {
+				builder.IfThenElse(
 					builder.False(),
-					func() error {
-						return builder.Printk("ok")
+					func() {
+						builder.Printk("ok")
 					},
-					func() error {
-						return builder.Printk("ko")
+					func() {
+						builder.Printk("ko")
 					},
 				)
 			},
-			func() error {
-				return builder.Printk("no-called")
+			func() {
+				builder.Printk("no-called")
 			},
 		)
 		builder.Return(0)
 
-		builder.Commit()
+		err := builder.Commit()
+		assert.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
@@ -415,21 +419,22 @@ func TestBuilderCond(t *testing.T) {
 		var prog Program
 		builder := prog.Edit(ProgramBuilderOpts{})
 
-		var1, _ := builder.NewVarV(uint32(44))
-		var2, _ := builder.NewVarV(uint32(44))
+		var1 := builder.NewVarV(uint32(44))
+		var2 := builder.NewVarV(uint32(44))
 
 		builder.IfThenElse(
 			builder.Equal(var1, var2),
-			func() error {
-				return builder.Printk("ok")
+			func() {
+				builder.Printk("ok")
 			},
-			func() error {
-				return builder.Printk("ko")
+			func() {
+				builder.Printk("ko")
 			},
 		)
 		builder.Return(0)
 
-		builder.Commit()
+		err := builder.Commit()
+		assert.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
@@ -440,20 +445,21 @@ func TestBuilderCond(t *testing.T) {
 		var prog Program
 		builder := prog.Edit(ProgramBuilderOpts{})
 
-		var1, _ := builder.NewVarV(uint32(44))
+		var1 := builder.NewVarV(uint32(44))
 
 		builder.IfThenElse(
 			builder.Equal(var1, uint32(44)),
-			func() error {
-				return builder.Printk("ok")
+			func() {
+				builder.Printk("ok")
 			},
-			func() error {
-				return builder.Printk("ko")
+			func() {
+				builder.Printk("ko")
 			},
 		)
 		builder.Return(0)
 
-		builder.Commit()
+		err := builder.Commit()
+		assert.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
@@ -464,20 +470,21 @@ func TestBuilderCond(t *testing.T) {
 		var prog Program
 		builder := prog.Edit(ProgramBuilderOpts{})
 
-		var1, _ := builder.NewVarV(uint64(44444444444))
+		var1 := builder.NewVarV(uint64(44444444444))
 
 		builder.IfThenElse(
 			builder.Equal(var1, uint64(44444444444)),
-			func() error {
-				return builder.Printk("ok")
+			func() {
+				builder.Printk("ok")
 			},
-			func() error {
-				return builder.Printk("ko")
+			func() {
+				builder.Printk("ko")
 			},
 		)
 		builder.Return(0)
 
-		builder.Commit()
+		err := builder.Commit()
+		assert.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
@@ -488,21 +495,22 @@ func TestBuilderCond(t *testing.T) {
 		var prog Program
 		builder := prog.Edit(ProgramBuilderOpts{})
 
-		var1, _ := builder.NewVarV(uint64(44444444444))
-		var2, _ := builder.NewVarV(uint64(44444444444))
+		var1 := builder.NewVarV(uint64(44444444444))
+		var2 := builder.NewVarV(uint64(44444444444))
 
 		builder.IfThenElse(
 			builder.Equal(var1, var2),
-			func() error {
-				return builder.Printk("ok")
+			func() {
+				builder.Printk("ok")
 			},
-			func() error {
-				return builder.Printk("ko")
+			func() {
+				builder.Printk("ko")
 			},
 		)
 		builder.Return(0)
 
-		builder.Commit()
+		err := builder.Commit()
+		assert.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
@@ -513,21 +521,22 @@ func TestBuilderCond(t *testing.T) {
 		var prog Program
 		builder := prog.Edit(ProgramBuilderOpts{})
 
-		var1, _ := builder.NewVarV(uint32(44))
-		var2, _ := builder.NewVarV(uint32(66))
+		var1 := builder.NewVarV(uint32(44))
+		var2 := builder.NewVarV(uint32(66))
 
 		builder.IfThenElse(
 			builder.Equal(var1, var2),
-			func() error {
-				return builder.Printk("ok")
+			func() {
+				builder.Printk("ok")
 			},
-			func() error {
-				return builder.Printk("ko")
+			func() {
+				builder.Printk("ko")
 			},
 		)
 		builder.Return(0)
 
-		builder.Commit()
+		err := builder.Commit()
+		assert.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
@@ -538,20 +547,21 @@ func TestBuilderCond(t *testing.T) {
 		var prog Program
 		builder := prog.Edit(ProgramBuilderOpts{})
 
-		var1, _ := builder.NewVarV(uint32(44))
+		var1 := builder.NewVarV(uint32(44))
 
 		builder.IfThenElse(
 			builder.Equal(var1, uint32(66)),
-			func() error {
-				return builder.Printk("ok")
+			func() {
+				builder.Printk("ok")
 			},
-			func() error {
-				return builder.Printk("ko")
+			func() {
+				builder.Printk("ko")
 			},
 		)
 		builder.Return(0)
 
-		builder.Commit()
+		err := builder.Commit()
+		assert.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
@@ -564,16 +574,17 @@ func TestBuilderCond(t *testing.T) {
 
 		builder.IfThenElse(
 			builder.And(builder.True(), builder.True()),
-			func() error {
-				return builder.Printk("ok")
+			func() {
+				builder.Printk("ok")
 			},
-			func() error {
-				return builder.Printk("ko")
+			func() {
+				builder.Printk("ko")
 			},
 		)
 		builder.Return(0)
 
-		builder.Commit()
+		err := builder.Commit()
+		assert.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
@@ -586,16 +597,17 @@ func TestBuilderCond(t *testing.T) {
 
 		builder.IfThenElse(
 			builder.And(builder.True(), builder.False()),
-			func() error {
-				return builder.Printk("ok")
+			func() {
+				builder.Printk("ok")
 			},
-			func() error {
-				return builder.Printk("ko")
+			func() {
+				builder.Printk("ko")
 			},
 		)
 		builder.Return(0)
 
-		builder.Commit()
+		err := builder.Commit()
+		assert.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
@@ -608,16 +620,17 @@ func TestBuilderCond(t *testing.T) {
 
 		builder.IfThenElse(
 			builder.And(builder.True(), builder.True(), builder.False()),
-			func() error {
-				return builder.Printk("ok")
+			func() {
+				builder.Printk("ok")
 			},
-			func() error {
-				return builder.Printk("ko")
+			func() {
+				builder.Printk("ko")
 			},
 		)
 		builder.Return(0)
 
-		builder.Commit()
+		err := builder.Commit()
+		assert.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
@@ -630,16 +643,17 @@ func TestBuilderCond(t *testing.T) {
 
 		builder.IfThenElse(
 			builder.And(builder.False(), builder.True(), builder.False()),
-			func() error {
-				return builder.Printk("ok")
+			func() {
+				builder.Printk("ok")
 			},
-			func() error {
-				return builder.Printk("ko")
+			func() {
+				builder.Printk("ko")
 			},
 		)
 		builder.Return(0)
 
-		builder.Commit()
+		err := builder.Commit()
+		assert.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
@@ -650,21 +664,22 @@ func TestBuilderCond(t *testing.T) {
 		var prog Program
 		builder := prog.Edit(ProgramBuilderOpts{})
 
-		var1, _ := builder.NewVarV(uint32(44))
-		var2, _ := builder.NewVarV(uint32(66))
+		var1 := builder.NewVarV(uint32(44))
+		var2 := builder.NewVarV(uint32(66))
 
 		builder.IfThenElse(
 			builder.And(builder.Equal(var1, uint32(44)), builder.Equal(var2, uint32(66))),
-			func() error {
-				return builder.Printk("ok")
+			func() {
+				builder.Printk("ok")
 			},
-			func() error {
-				return builder.Printk("ko")
+			func() {
+				builder.Printk("ko")
 			},
 		)
 		builder.Return(0)
 
-		builder.Commit()
+		err := builder.Commit()
+		assert.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
@@ -675,21 +690,22 @@ func TestBuilderCond(t *testing.T) {
 		var prog Program
 		builder := prog.Edit(ProgramBuilderOpts{})
 
-		var1, _ := builder.NewVarV(uint32(44))
-		var2, _ := builder.NewVarV(uint32(66))
+		var1 := builder.NewVarV(uint32(44))
+		var2 := builder.NewVarV(uint32(66))
 
 		builder.IfThenElse(
 			builder.And(builder.Equal(var1, uint32(44)), builder.Equal(var2, uint32(77))),
-			func() error {
-				return builder.Printk("ok")
+			func() {
+				builder.Printk("ok")
 			},
-			func() error {
-				return builder.Printk("ko")
+			func() {
+				builder.Printk("ko")
 			},
 		)
 		builder.Return(0)
 
-		builder.Commit()
+		err := builder.Commit()
+		assert.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
@@ -702,16 +718,17 @@ func TestBuilderCond(t *testing.T) {
 
 		builder.IfThenElse(
 			builder.Or(builder.False(), builder.True()),
-			func() error {
-				return builder.Printk("ok")
+			func() {
+				builder.Printk("ok")
 			},
-			func() error {
-				return builder.Printk("ko")
+			func() {
+				builder.Printk("ko")
 			},
 		)
 		builder.Return(0)
 
-		builder.Commit()
+		err := builder.Commit()
+		assert.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
@@ -724,16 +741,17 @@ func TestBuilderCond(t *testing.T) {
 
 		builder.IfThenElse(
 			builder.Or(builder.True(), builder.False()),
-			func() error {
-				return builder.Printk("ok")
+			func() {
+				builder.Printk("ok")
 			},
-			func() error {
-				return builder.Printk("ko")
+			func() {
+				builder.Printk("ko")
 			},
 		)
 		builder.Return(0)
 
-		builder.Commit()
+		err := builder.Commit()
+		assert.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
@@ -746,16 +764,17 @@ func TestBuilderCond(t *testing.T) {
 
 		builder.IfThenElse(
 			builder.Or(builder.False(), builder.False()),
-			func() error {
-				return builder.Printk("ok")
+			func() {
+				builder.Printk("ok")
 			},
-			func() error {
-				return builder.Printk("ko")
+			func() {
+				builder.Printk("ko")
 			},
 		)
 		builder.Return(0)
 
-		builder.Commit()
+		err := builder.Commit()
+		assert.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
@@ -766,21 +785,22 @@ func TestBuilderCond(t *testing.T) {
 		var prog Program
 		builder := prog.Edit(ProgramBuilderOpts{})
 
-		var1, _ := builder.NewVarV(uint32(44))
-		var2, _ := builder.NewVarV(uint32(66))
+		var1 := builder.NewVarV(uint32(44))
+		var2 := builder.NewVarV(uint32(66))
 
 		builder.IfThenElse(
 			builder.Or(builder.Equal(var1, uint32(44)), builder.Equal(var2, uint32(77))),
-			func() error {
-				return builder.Printk("ok")
+			func() {
+				builder.Printk("ok")
 			},
-			func() error {
-				return builder.Printk("ko")
+			func() {
+				builder.Printk("ko")
 			},
 		)
 		builder.Return(0)
 
-		builder.Commit()
+		err := builder.Commit()
+		assert.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
@@ -791,21 +811,22 @@ func TestBuilderCond(t *testing.T) {
 		var prog Program
 		builder := prog.Edit(ProgramBuilderOpts{})
 
-		var1, _ := builder.NewVarV(uint32(44))
-		var2, _ := builder.NewVarV(uint32(66))
+		var1 := builder.NewVarV(uint32(44))
+		var2 := builder.NewVarV(uint32(66))
 
 		builder.IfThenElse(
 			builder.Or(builder.Equal(var1, uint32(88)), builder.Equal(var2, uint32(77))),
-			func() error {
-				return builder.Printk("ok")
+			func() {
+				builder.Printk("ok")
 			},
-			func() error {
-				return builder.Printk("ko")
+			func() {
+				builder.Printk("ko")
 			},
 		)
 		builder.Return(0)
 
-		builder.Commit()
+		err := builder.Commit()
+		assert.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
@@ -818,20 +839,21 @@ func TestBuilderStrCmp(t *testing.T) {
 		var prog Program
 		builder := prog.Edit(ProgramBuilderOpts{})
 
-		var1, _ := builder.NewVarV("test123")
+		var1 := builder.NewVarV("test123")
 
 		builder.IfThenElse(
 			builder.StrStaticCmp(var1, "test123"),
-			func() error {
-				return builder.Printk("ok")
+			func() {
+				builder.Printk("ok")
 			},
-			func() error {
-				return builder.Printk("ko")
+			func() {
+				builder.Printk("ko")
 			},
 		)
 		builder.Return(0)
 
-		builder.Commit()
+		err := builder.Commit()
+		assert.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
@@ -842,20 +864,21 @@ func TestBuilderStrCmp(t *testing.T) {
 		var prog Program
 		builder := prog.Edit(ProgramBuilderOpts{})
 
-		var1, _ := builder.NewVarV("test123")
+		var1 := builder.NewVarV("test123")
 
 		builder.IfThenElse(
 			builder.StrStaticCmp(var1, "test567"),
-			func() error {
-				return builder.Printk("ok")
+			func() {
+				builder.Printk("ok")
 			},
-			func() error {
-				return builder.Printk("ko")
+			func() {
+				builder.Printk("ko")
 			},
 		)
 		builder.Return(0)
 
-		builder.Commit()
+		err := builder.Commit()
+		assert.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
@@ -866,21 +889,22 @@ func TestBuilderStrCmp(t *testing.T) {
 		var prog Program
 		builder := prog.Edit(ProgramBuilderOpts{})
 
-		var1, _ := builder.NewVarV("test123")
-		var2, _ := builder.NewVarV("test123")
+		var1 := builder.NewVarV("test123")
+		var2 := builder.NewVarV("test123")
 
 		builder.IfThenElse(
 			builder.StrCmp(var1, var2, 30),
-			func() error {
-				return builder.Printk("ok")
+			func() {
+				builder.Printk("ok")
 			},
-			func() error {
-				return builder.Printk("ko")
+			func() {
+				builder.Printk("ko")
 			},
 		)
 		builder.Return(0)
 
-		builder.Commit()
+		err := builder.Commit()
+		assert.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
@@ -891,21 +915,22 @@ func TestBuilderStrCmp(t *testing.T) {
 		var prog Program
 		builder := prog.Edit(ProgramBuilderOpts{})
 
-		var1, _ := builder.NewVarV("test123")
-		var2, _ := builder.NewVarV("test567")
+		var1 := builder.NewVarV("test123")
+		var2 := builder.NewVarV("test567")
 
 		builder.IfThenElse(
 			builder.StrCmp(var1, var2, 30),
-			func() error {
-				return builder.Printk("ok")
+			func() {
+				builder.Printk("ok")
 			},
-			func() error {
-				return builder.Printk("ko")
+			func() {
+				builder.Printk("ko")
 			},
 		)
 		builder.Return(0)
 
-		builder.Commit()
+		err := builder.Commit()
+		assert.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
@@ -918,21 +943,21 @@ func TestBuilderMap(t *testing.T) {
 		var prog Program
 		builder := prog.Edit(ProgramBuilderOpts{})
 
-		key, _ := builder.NewVarV(uint32(1))
-		valuePtr, _ := builder.NewPtrVar()
+		key := builder.NewVarV(uint32(1))
+		valuePtr := builder.NewPtrVar()
 
 		builder.MapLookup("map1", key, valuePtr)
-		builder.IfThenElse(builder.IsNull(valuePtr), func() error {
+		builder.IfThenElse(builder.IsNull(valuePtr), func() {
 			builder.Return(0)
-			return nil
 		}, nil)
 
-		value, _ := valuePtr.Deref(UInt32Type, 0)
+		value := valuePtr.Deref(UInt32Type, 0)
 		builder.Printk("value: %d", value)
 
 		builder.Return(0)
 
-		builder.Commit()
+		err := builder.Commit()
+		assert.Nil(t, err)
 
 		runProg(t, &prog, func(vm *VM) {
 			updated, err := vm.Map("map1").Update(uint32(1), uint32(44), BPF_ANY)
@@ -947,26 +972,26 @@ func TestBuilderMap(t *testing.T) {
 		var prog Program
 		builder := prog.Edit(ProgramBuilderOpts{})
 
-		key, _ := builder.NewVarV(uint32(2))
-		value, _ := builder.NewVarV(uint32(66))
-		ret, _ := builder.NewVarV(int32(-1))
+		key := builder.NewVarV(uint32(2))
+		value := builder.NewVarV(uint32(66))
+		ret := builder.NewVarV(int32(-1))
 
 		builder.MapUpdate("map1", key, value, ret, BPF_ANY)
 		builder.IfThenElse(builder.NotEqual(ret, int32(0)),
-			func() error {
+			func() {
 				builder.Return(0)
-				return nil
 			}, nil)
 
-		valuePtr, _ := builder.NewPtrVar()
+		valuePtr := builder.NewPtrVar()
 		builder.MapLookup("map1", key, valuePtr)
 
-		value, _ = valuePtr.Deref(UInt32Type, 0)
+		value = valuePtr.Deref(UInt32Type, 0)
 		builder.Printk("value: %d", value)
 
 		builder.Return(0)
 
-		builder.Commit()
+		err := builder.Commit()
+		assert.Nil(t, err)
 
 		runProg(t, &prog, func(vm *VM) {
 		}, func(_ *VM, output string) {
@@ -978,33 +1003,32 @@ func TestBuilderMap(t *testing.T) {
 		var prog Program
 		builder := prog.Edit(ProgramBuilderOpts{})
 
-		key, _ := builder.NewVarV(uint32(2))
-		value, _ := builder.NewVarV(uint32(66))
-		ret, _ := builder.NewVarV(int32(-1))
+		key := builder.NewVarV(uint32(2))
+		value := builder.NewVarV(uint32(66))
+		ret := builder.NewVarV(int32(-1))
 
 		builder.MapUpdate("map2", key, value, ret, BPF_ANY)
 		builder.IfThenElse(builder.NotEqual(ret, uint32(0)),
-			func() error {
+			func() {
 				builder.Return(0)
-				return nil
 			}, nil)
 
-		valuePtr, _ := builder.NewPtrVar()
+		valuePtr := builder.NewPtrVar()
 		builder.MapLookup("map2", key, valuePtr)
 
-		value, _ = valuePtr.Deref(UInt32Type, 0)
+		value = valuePtr.Deref(UInt32Type, 0)
 		builder.Printk("value: %d", value)
 
 		builder.MapDelete("map2", key, ret)
 		builder.IfThenElse(builder.NotEqual(ret, uint32(0)),
-			func() error {
+			func() {
 				builder.Return(0)
-				return nil
 			}, nil)
 
 		builder.Return(0)
 
-		builder.Commit()
+		err := builder.Commit()
+		assert.Nil(t, err)
 
 		runProg(t, &prog, func(vm *VM) {
 		}, func(vm *VM, output string) {
@@ -1028,29 +1052,26 @@ func TestBuilderMarshal(t *testing.T) {
 		)
 		builder := prog.Edit(ProgramBuilderOpts{})
 
-		key, _ := builder.NewVarV(uint32(1))
-		valuePtr, _ := builder.NewPtrVar()
+		key := builder.NewVarV(uint32(1))
+		valuePtr := builder.NewPtrVar()
 
 		builder.MapLookup("map3", key, valuePtr)
 
-		mountID, err := valuePtr.Deref(UInt64Type, 0)
-		assert.Nil(t, err)
-
-		inode, err := valuePtr.Deref(UInt32Type, UInt64Type.Sizeof())
-		assert.Nil(t, err)
+		mountID := valuePtr.Deref(UInt64Type, 0)
+		inode := valuePtr.Deref(UInt32Type, UInt64Type.Sizeof())
 
 		builder.IfThenElse(builder.And(
 			builder.Equal(mountID, uint64(108)), builder.Equal(inode, uint32(90))),
-			func() error {
+			func() {
 				builder.Printk("mount_id: %d, inode: %d", mountID, inode)
-				return nil
 			},
 			nil,
 		)
 
 		builder.Return(0)
 
-		builder.Commit()
+		err := builder.Commit()
+		assert.Nil(t, err)
 
 		runProg(t, &prog, func(vm *VM) {
 			updated, err := vm.Map("map3").Update(uint32(1), &dentry, BPF_ANY)

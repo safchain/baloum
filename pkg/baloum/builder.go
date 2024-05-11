@@ -20,12 +20,34 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"runtime"
 	"strings"
 
 	"github.com/cilium/ebpf/asm"
 )
 
-type Condition func(trueSym, falseSym string) error
+type BuilderError struct {
+	err        error
+	stacktrace []byte
+}
+
+func NewBuilderError(err error) *BuilderError {
+	p := &BuilderError{
+		err: err,
+	}
+	runtime.Stack(p.stacktrace, false)
+	return p
+}
+
+func (b *BuilderError) Error() string {
+	return b.err.Error()
+}
+
+func (b *BuilderError) Stack() []byte {
+	return b.stacktrace
+}
+
+type Condition func(trueSym, falseSym string)
 
 type stackMemBlock struct {
 	addr  int16
@@ -122,11 +144,8 @@ func (vt VariableType) Sizeof() int {
 type Variable struct {
 	Type VariableType
 
-	// storage
 	addr int16
-
-	// internals
-	pb *ProgramBuilder
+	pb   *ProgramBuilder
 }
 
 func (vr *Variable) IsPtr() bool {
@@ -141,19 +160,16 @@ func (vr *Variable) Sizeof() int {
 	return vr.Type.Sizeof()
 }
 
-func (vr *Variable) Deref(vt VariableType, offset int) (*Variable, error) {
+func (vr *Variable) Deref(vt VariableType, offset int) *Variable {
 	if !vr.IsPtr() {
-		return nil, errors.New("invalid variable type")
+		vr.pb.setError("invalid variable type")
 	}
 
-	derefVar, err := vr.pb.NewVar(vt)
-	if err != nil {
-		return nil, err
-	}
+	derefVar := vr.pb.NewVar(vt)
 
 	reg1, reg2, err := vr.pb.regAlloc.Alloc2()
 	if err != nil {
-		return nil, err
+		vr.pb.setError(err)
 	}
 	defer vr.pb.regAlloc.Free(reg1, reg2)
 
@@ -163,17 +179,17 @@ func (vr *Variable) Deref(vt VariableType, offset int) (*Variable, error) {
 		asm.StoreMem(asm.RFP, derefVar.addr, reg2, derefVar.AsmSizeof()),
 	}...)
 
-	return derefVar, nil
+	return derefVar
 }
 
-func (vr *Variable) Ptr() (asm.Register, error) {
+func (vr *Variable) Ptr() asm.Register {
 	reg, err := vr.pb.regAlloc.Alloc()
 	if err != nil {
-		return 0, err
+		vr.pb.setError(err)
 	}
 	vr.PtrReg(reg)
 
-	return reg, nil
+	return reg
 }
 
 func (vr *Variable) PtrReg(reg asm.Register) {
@@ -183,25 +199,23 @@ func (vr *Variable) PtrReg(reg asm.Register) {
 	}...)
 }
 
-func (vr *Variable) Load(offset int) (asm.Register, error) {
+func (vr *Variable) load(offset int) asm.Register {
 	regVal, err := vr.pb.regAlloc.Alloc()
 	if err != nil {
-		return 0, err
+		vr.pb.setError(err)
 	}
 
 	vr.pb.insts = append(vr.pb.insts, asm.Instructions{
 		asm.LoadMem(regVal, asm.RFP, vr.addr+int16(offset), vr.AsmSizeof()),
 	}...)
 
-	return regVal, nil
+	return regVal
 }
 
-func (vr *Variable) Store(reg asm.Register) error {
+func (vr *Variable) store(reg asm.Register) {
 	vr.pb.insts = append(vr.pb.insts, asm.Instructions{
 		asm.StoreMem(asm.RFP, int16(vr.addr), reg, asm.DWord),
 	}...)
-
-	return nil
 }
 
 type JmpSymbolGenerator struct {
@@ -238,6 +252,7 @@ type ProgramBuilder struct {
 	blocks    []stackMemBlock
 	jmpSymGen JmpSymbolGenerator
 	regAlloc  *RegisterAllocator
+	err       error
 }
 
 func NewProgramBuilder(p *Program, opts ProgramBuilderOpts) *ProgramBuilder {
@@ -250,13 +265,24 @@ func NewProgramBuilder(p *Program, opts ProgramBuilderOpts) *ProgramBuilder {
 	}
 }
 
-func (p *ProgramBuilder) Commit() {
-	// TODO optimise :
-	// MovReg dst: r4 src: rfp (8)
-	// StXMemDW dst: r4 src: r0 off: -24 imm: 0 (8)
-	// MovReg dst: r4 src: rfp (8)
-	// LdXMemW dst: r5 src: r4 off: -24 imm: 0 (8)
+func (p *ProgramBuilder) Error() error {
+	return p.err
+}
 
+func (p *ProgramBuilder) setError(arg1 interface{}, args ...interface{}) {
+	if p.err == nil {
+		switch arg := arg1.(type) {
+		case string:
+			p.err = NewBuilderError(fmt.Errorf(arg, args...))
+		case error:
+			p.err = NewBuilderError(arg)
+		default:
+			p.err = NewBuilderError(errors.New("unknown error"))
+		}
+	}
+}
+
+func (p *ProgramBuilder) Commit() error {
 	// relocate symbol
 	for i := len(p.insts) - 1; i > 0; i-- {
 		if symbol := p.insts[i-1].Symbol(); strings.HasSuffix(symbol, JumpSymbolType) {
@@ -265,9 +291,11 @@ func (p *ProgramBuilder) Commit() {
 		}
 	}
 	p.program.insts = append(p.program.insts, p.insts...)
+
+	return p.err
 }
 
-func (p *ProgramBuilder) StackAlloc(size int16) (int16, error) {
+func (p *ProgramBuilder) stackAlloc(size int16) int16 {
 	var lastAddr int16
 	for i, block := range p.blocks {
 		if !block.inuse && block.size >= size {
@@ -296,13 +324,13 @@ func (p *ProgramBuilder) StackAlloc(size int16) (int16, error) {
 			}
 			p.blocks = append(p.blocks, right...)
 
-			return inuse.addr, nil
+			return inuse.addr
 		}
 		lastAddr = block.addr
 	}
 
 	if lastAddr-int16(size) < -int16(p.opts.StackSize) {
-		return 0, fmt.Errorf("out of stack memory: %d vs %d", size, p.opts.StackSize)
+		p.setError("out of stack memory: %d vs %d", size, p.opts.StackSize)
 	}
 
 	block := stackMemBlock{
@@ -312,28 +340,10 @@ func (p *ProgramBuilder) StackAlloc(size int16) (int16, error) {
 	}
 	p.blocks = append(p.blocks, block)
 
-	return block.addr, nil
+	return block.addr
 }
 
-func (p *ProgramBuilder) Sizeof(addr int16) asm.Size {
-	for _, block := range p.blocks {
-		if block.addr == addr {
-			switch block.size {
-			case 1:
-				return asm.Byte
-			case 2:
-				return asm.Half
-			case 4:
-				return asm.Word
-			case 8:
-				return asm.DWord
-			}
-		}
-	}
-	return asm.InvalidSize
-}
-
-func (p *ProgramBuilder) StackFree(addr int16) {
+func (p *ProgramBuilder) stackFree(addr int16) {
 	for i, block := range p.blocks {
 		if block.addr == addr {
 			if i+1 == len(p.blocks) {
@@ -349,7 +359,7 @@ func (p *ProgramBuilder) StackFree(addr int16) {
 	}
 }
 
-func (p *ProgramBuilder) stackBytes(bytes []byte) (int16, asm.Instructions, error) {
+func (p *ProgramBuilder) stackBytes(bytes []byte) (int16, asm.Instructions) {
 	var instructions asm.Instructions
 
 	var (
@@ -378,10 +388,7 @@ func (p *ProgramBuilder) stackBytes(bytes []byte) (int16, asm.Instructions, erro
 		values = append(values, value)
 	}
 
-	addr, err := p.StackAlloc(int16(len(values) * 8))
-	if err != nil {
-		return 0, nil, err
-	}
+	addr := p.stackAlloc(int16(len(values) * 8))
 
 	ptr := addr
 	for _, value := range values {
@@ -405,7 +412,7 @@ func (p *ProgramBuilder) stackBytes(bytes []byte) (int16, asm.Instructions, erro
 		ptr += 8
 	}
 
-	return addr, instructions, nil
+	return addr, instructions
 }
 
 func (p *ProgramBuilder) Return(code int) {
@@ -415,17 +422,14 @@ func (p *ProgramBuilder) Return(code int) {
 	)
 }
 
-// TODO(safchain) make args optionals
-func (p *ProgramBuilder) Printk(format string, args ...interface{}) error {
+func (p *ProgramBuilder) Printk(format string, args ...interface{}) {
 	if len(args) > 3 {
-		return errors.New("maximum of args excedeed")
+		p.setError("maximum of args excedeed")
+		args = args[0:3]
 	}
 
 	// format
-	addr, insts, err := p.stackBytes([]byte(format))
-	if err != nil {
-		return err
-	}
+	addr, insts := p.stackBytes([]byte(format))
 	p.insts = append(p.insts, insts...)
 
 	p.insts = append(p.insts,
@@ -465,7 +469,7 @@ func (p *ProgramBuilder) Printk(format string, args ...interface{}) error {
 	regs := []asm.Register{asm.R3, asm.R4, asm.R5}
 	for i, arg := range args {
 		if err := addArg(regs[i], arg); err != nil {
-			return err
+			p.setError(err)
 		}
 	}
 
@@ -473,34 +477,26 @@ func (p *ProgramBuilder) Printk(format string, args ...interface{}) error {
 		asm.FnTracePrintk.Call(),
 	)
 
-	p.StackFree(addr)
-
-	return nil
+	p.stackFree(addr)
 }
 
 func (p *ProgramBuilder) StrStaticCmp(var1 *Variable, str string) Condition {
-	return func(trueSym, falseSym string) error {
+	return func(trueSym, falseSym string) {
 		if !var1.IsPtr() {
-			return errors.New("invalid variable type")
+			p.setError("invalid variable type")
 		}
 
 		size := int16(len(str))
 
 		var (
-			regPtr asm.Register
+			regPtr = var1.Ptr()
 			regVal asm.Register
 			err    error
 		)
 		defer p.regAlloc.Free(regPtr, regVal)
 
-		regPtr, err = var1.Ptr()
-		if err != nil {
-			return err
-		}
-
-		regVal, err = p.regAlloc.Alloc()
-		if err != nil {
-			return err
+		if regVal, err = p.regAlloc.Alloc(); err != nil {
+			p.setError(err)
 		}
 
 		for i := int16(0); i != size; i++ {
@@ -510,22 +506,18 @@ func (p *ProgramBuilder) StrStaticCmp(var1 *Variable, str string) Condition {
 			)
 		}
 
-		// TODO add PtrInst and LoadInst to Variable to ease the development
-
 		p.insts = append(p.insts,
 			asm.LoadMem(regVal, regPtr, size, asm.Byte),
 			asm.JEq.Imm(regVal, 0, trueSym),
 			asm.Ja.Label(falseSym),
 		)
-
-		return nil
 	}
 }
 
 func (p *ProgramBuilder) StrCmp(var1 *Variable, var2 *Variable, unroll int) Condition {
-	return func(trueSym string, falseSym string) error {
+	return func(trueSym string, falseSym string) {
 		if !var1.IsPtr() || !var2.IsPtr() {
-			return errors.New("invalid variable type")
+			p.setError("invalid variable type")
 		}
 
 		var (
@@ -535,19 +527,11 @@ func (p *ProgramBuilder) StrCmp(var1 *Variable, var2 *Variable, unroll int) Cond
 		)
 		defer p.regAlloc.Free(regPtr1, regVal1, regPtr2, regVal2)
 
-		regPtr1, err = var1.Ptr()
-		if err != nil {
-			return err
-		}
-
-		regPtr2, err = var2.Ptr()
-		if err != nil {
-			return err
-		}
+		regPtr1, regPtr2 = var1.Ptr(), var2.Ptr()
 
 		regVal1, regVal2, err = p.regAlloc.Alloc2()
 		if err != nil {
-			return err
+			p.setError(err)
 		}
 
 		addr1, addr2 := var1.addr, var2.addr
@@ -572,31 +556,27 @@ func (p *ProgramBuilder) StrCmp(var1 *Variable, var2 *Variable, unroll int) Cond
 		p.insts = append(p.insts,
 			asm.Ja.Label(falseSym),
 		)
-
-		return nil
 	}
 }
 
 func (p *ProgramBuilder) True() Condition {
-	return func(trueSym, falseSym string) error {
+	return func(trueSym, falseSym string) {
 		p.insts = append(p.insts,
 			asm.Ja.Label(trueSym),
 		)
-		return nil
 	}
 }
 
 func (p *ProgramBuilder) False() Condition {
-	return func(trueSym, falseSym string) error {
+	return func(trueSym, falseSym string) {
 		p.insts = append(p.insts,
 			asm.Ja.Label(falseSym),
 		)
-		return nil
 	}
 }
 
 func (p *ProgramBuilder) And(conds ...Condition) Condition {
-	return func(trueSym, falseSym string) error {
+	return func(trueSym, falseSym string) {
 		for i, cond := range conds {
 			sbg := p.jmpSymGen.EnterBlock()
 
@@ -609,12 +589,11 @@ func (p *ProgramBuilder) And(conds ...Condition) Condition {
 				p.updateLastInstSymbol(nextCondSym)
 			}
 		}
-		return nil
 	}
 }
 
 func (p *ProgramBuilder) Or(conds ...Condition) Condition {
-	return func(trueSym, falseSym string) error {
+	return func(trueSym, falseSym string) {
 		for i, cond := range conds {
 			sbg := p.jmpSymGen.EnterBlock()
 
@@ -627,7 +606,6 @@ func (p *ProgramBuilder) Or(conds ...Condition) Condition {
 				p.updateLastInstSymbol(nextCondSym)
 			}
 		}
-		return nil
 	}
 }
 
@@ -641,31 +619,22 @@ func (p *ProgramBuilder) IsNotNull(var1 *Variable) Condition {
 
 func (p *ProgramBuilder) NotEqual(var1 *Variable, var2 interface{}) Condition {
 	fnc := p.Equal(var1, var2)
-	return func(trueSym, falseSym string) error {
-		return fnc(falseSym, trueSym)
+	return func(trueSym, falseSym string) {
+		fnc(falseSym, trueSym)
 	}
 }
 
 func (p *ProgramBuilder) Equal(var1 *Variable, var2 interface{}) Condition {
-	return func(trueSym string, falseSym string) error {
+	return func(trueSym string, falseSym string) {
 		var (
-			regVal1 asm.Register
+			regVal1 = var1.load(0)
 			regVal2 asm.Register
-			err     error
 		)
 		defer p.regAlloc.Free(regVal1, regVal2)
 
-		regVal1, err = var1.Load(0)
-		if err != nil {
-			return err
-		}
-
 		switch v2 := var2.(type) {
 		case *Variable:
-			regVal2, err = v2.Load(0)
-			if err != nil {
-				return err
-			}
+			regVal2 = v2.load(0)
 
 			p.insts = append(p.insts,
 				asm.JEq.Reg(regVal1, regVal2, trueSym),
@@ -674,7 +643,7 @@ func (p *ProgramBuilder) Equal(var1 *Variable, var2 interface{}) Condition {
 		case int8, uint8, int16, uint16, int32, uint32:
 			val2, err := ToInt32(v2)
 			if err != nil {
-				return err
+				p.setError(err)
 			}
 
 			p.insts = append(p.insts,
@@ -684,7 +653,7 @@ func (p *ProgramBuilder) Equal(var1 *Variable, var2 interface{}) Condition {
 		case int64, uint64:
 			val2, err := ToInt64(v2)
 			if err != nil {
-				return err
+				p.setError(err)
 			}
 
 			p.insts = append(p.insts,
@@ -693,14 +662,12 @@ func (p *ProgramBuilder) Equal(var1 *Variable, var2 interface{}) Condition {
 				asm.Ja.Label(falseSym),
 			)
 		default:
-			return errors.New("unknown type")
+			p.setError("unknown type")
 		}
-
-		return nil
 	}
 }
 
-func (p *ProgramBuilder) MapLookup(mapName string, key *Variable, value *Variable) error {
+/*func (p *ProgramBuilder) TailCall(mapName string, key *Variable, value *Variable) error {
 	if !value.IsPtr() {
 		return errors.New("value is not a pointer type")
 	}
@@ -713,9 +680,24 @@ func (p *ProgramBuilder) MapLookup(mapName string, key *Variable, value *Variabl
 	)
 
 	return value.Store(asm.R0)
+}*/
+
+func (p *ProgramBuilder) MapLookup(mapName string, key *Variable, value *Variable) {
+	if !value.IsPtr() {
+		p.setError("value is not a pointer type")
+	}
+
+	key.PtrReg(asm.R2)
+
+	p.insts = append(p.insts,
+		asm.LoadMapPtr(asm.R1, 0).WithReference(mapName),
+		asm.FnMapLookupElem.Call(),
+	)
+
+	value.store(asm.R0)
 }
 
-func (p *ProgramBuilder) MapUpdate(mapName string, key *Variable, value *Variable, ret *Variable, kind MapUpdateType) error {
+func (p *ProgramBuilder) MapUpdate(mapName string, key *Variable, value *Variable, ret *Variable, kind MapUpdateType) {
 	key.PtrReg(asm.R2)
 	value.PtrReg(asm.R3)
 
@@ -726,12 +708,11 @@ func (p *ProgramBuilder) MapUpdate(mapName string, key *Variable, value *Variabl
 	)
 
 	if ret != nil {
-		return ret.Store(asm.R0)
+		ret.store(asm.R0)
 	}
-	return nil
 }
 
-func (p *ProgramBuilder) MapDelete(mapName string, key *Variable, ret *Variable) error {
+func (p *ProgramBuilder) MapDelete(mapName string, key *Variable, ret *Variable) {
 	key.PtrReg(asm.R2)
 
 	p.insts = append(p.insts,
@@ -740,9 +721,8 @@ func (p *ProgramBuilder) MapDelete(mapName string, key *Variable, ret *Variable)
 	)
 
 	if ret != nil {
-		return ret.Store(asm.R0)
+		ret.store(asm.R0)
 	}
-	return nil
 }
 
 func (p *ProgramBuilder) lastInstIdx() int {
@@ -753,7 +733,7 @@ func (p *ProgramBuilder) updateLastInstSymbol(symbol string) {
 	p.insts[p.lastInstIdx()] = p.insts[p.lastInstIdx()].WithSymbol(symbol)
 }
 
-func (p *ProgramBuilder) IfThenElse(cond Condition, then func() error, els func() error) error {
+func (p *ProgramBuilder) IfThenElse(cond Condition, then func(), els func()) {
 	var (
 		sbg = p.jmpSymGen.EnterBlock()
 
@@ -765,15 +745,12 @@ func (p *ProgramBuilder) IfThenElse(cond Condition, then func() error, els func(
 		falseSym = sbg.GetSymbol("else")
 	}
 
-	if err := cond(trueSym, falseSym); err != nil {
-		return err
-	}
+	cond(trueSym, falseSym)
+
 	p.updateLastInstSymbol(trueSym)
 
 	if then != nil {
-		if err := then(); err != nil {
-			return err
-		}
+		then()
 	}
 
 	p.insts = append(p.insts,
@@ -781,25 +758,18 @@ func (p *ProgramBuilder) IfThenElse(cond Condition, then func() error, els func(
 	)
 
 	if els != nil {
-		if err := els(); err != nil {
-			return err
-		}
+		els()
 	}
 	p.updateLastInstSymbol(sbg.GetSymbol("endif"))
-
-	return nil
 }
 
-func (p *ProgramBuilder) NewNumberVar(kind VariableType, value int64) (*Variable, error) {
-	addr, err := p.StackAlloc(int16(asm.DWord.Sizeof()))
-	if err != nil {
-		return nil, err
-	}
+func (p *ProgramBuilder) NewNumberVar(kind VariableType, value int64) *Variable {
+	addr := p.stackAlloc(int16(asm.DWord.Sizeof()))
 	variable := &Variable{Type: kind, addr: addr, pb: p}
 
 	regValue, err := p.regAlloc.Alloc()
 	if err != nil {
-		return nil, err
+		p.setError(err)
 	}
 	defer p.regAlloc.Free(regValue)
 
@@ -816,30 +786,23 @@ func (p *ProgramBuilder) NewNumberVar(kind VariableType, value int64) (*Variable
 		)
 	}
 
-	return variable, nil
+	return variable
 }
 
-func (p *ProgramBuilder) NewByteArrayVar(value []byte) (*Variable, error) {
-	addr, insts, err := p.stackBytes(value)
-	if err != nil {
-		return nil, err
-	}
+func (p *ProgramBuilder) NewByteArrayVar(value []byte) *Variable {
+	addr, insts := p.stackBytes(value)
 	variable := &Variable{Type: PtrType, addr: addr, pb: p}
-
 	p.insts = append(p.insts, insts...)
 
-	return variable, nil
+	return variable
 }
 
-func (p *ProgramBuilder) NewPtrVar() (*Variable, error) {
-	addr, err := p.StackAlloc(int16(asm.DWord.Sizeof()))
-	if err != nil {
-		return nil, err
-	}
-	return &Variable{Type: PtrType, addr: addr, pb: p}, nil
+func (p *ProgramBuilder) NewPtrVar() *Variable {
+	addr := p.stackAlloc(int16(asm.DWord.Sizeof()))
+	return &Variable{Type: PtrType, addr: addr, pb: p}
 }
 
-func (p *ProgramBuilder) NewVar(kind VariableType) (*Variable, error) {
+func (p *ProgramBuilder) NewVar(kind VariableType) *Variable {
 	switch t := kind; t {
 	case Int8Type, UInt8Type, Int16Type, UInt16Type, Int32Type, UInt32Type, Int64Type, UInt64Type:
 		return p.NewNumberVar(t, 0)
@@ -847,10 +810,12 @@ func (p *ProgramBuilder) NewVar(kind VariableType) (*Variable, error) {
 		return p.NewByteArrayVar(nil)
 	}
 
-	return nil, fmt.Errorf("variable type unknown")
+	p.setError("variable type unknown")
+
+	return &Variable{}
 }
 
-func (p *ProgramBuilder) NewVarV(value interface{}) (*Variable, error) {
+func (p *ProgramBuilder) NewVarV(value interface{}) *Variable {
 	switch v := value.(type) {
 	case int8:
 		return p.NewNumberVar(Int8Type, int64(v))
@@ -874,7 +839,9 @@ func (p *ProgramBuilder) NewVarV(value interface{}) (*Variable, error) {
 		return p.NewByteArrayVar([]byte(v))
 	}
 
-	return nil, fmt.Errorf("variable type unknown")
+	p.setError("variable type unknown")
+
+	return &Variable{}
 }
 
 func (p *ProgramBuilder) FreeVar() {
