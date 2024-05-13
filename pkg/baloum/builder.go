@@ -33,7 +33,8 @@ type BuilderError struct {
 
 func NewBuilderError(err error) *BuilderError {
 	p := &BuilderError{
-		err: err,
+		err:        err,
+		stacktrace: make([]byte, 4096),
 	}
 	runtime.Stack(p.stacktrace, false)
 	return p
@@ -60,8 +61,6 @@ type RegisterAllocator struct {
 }
 
 func (r *RegisterAllocator) Alloc() (asm.Register, error) {
-	// TODO reverse order to keep R1, R2, R3 available as much as possible
-
 	if len(r.available) == 0 {
 		return 0, errors.New("no register available")
 	}
@@ -182,17 +181,18 @@ func (vr *Variable) Deref(vt VariableType, offset int) *Variable {
 	return derefVar
 }
 
-func (vr *Variable) Ptr() asm.Register {
+func (vr *Variable) ptr() asm.Register {
 	reg, err := vr.pb.regAlloc.Alloc()
 	if err != nil {
 		vr.pb.setError(err)
 	}
-	vr.PtrReg(reg)
+	vr.ptrReg(reg)
 
 	return reg
 }
 
-func (vr *Variable) PtrReg(reg asm.Register) {
+// PtrReg set reg to the address of the variable
+func (vr *Variable) ptrReg(reg asm.Register) {
 	vr.pb.insts = append(vr.pb.insts, asm.Instructions{
 		asm.Mov.Reg(reg, asm.RFP),
 		asm.Add.Imm(reg, int32(vr.addr)),
@@ -205,11 +205,15 @@ func (vr *Variable) load(offset int) asm.Register {
 		vr.pb.setError(err)
 	}
 
-	vr.pb.insts = append(vr.pb.insts, asm.Instructions{
-		asm.LoadMem(regVal, asm.RFP, vr.addr+int16(offset), vr.AsmSizeof()),
-	}...)
+	vr.loadReg(regVal, offset)
 
 	return regVal
+}
+
+func (vr *Variable) loadReg(reg asm.Register, offset int) {
+	vr.pb.insts = append(vr.pb.insts, asm.Instructions{
+		asm.LoadMem(reg, asm.RFP, vr.addr+int16(offset), vr.AsmSizeof()),
+	}...)
 }
 
 func (vr *Variable) store(reg asm.Register) {
@@ -283,7 +287,7 @@ func (p *ProgramBuilder) setError(arg1 interface{}, args ...interface{}) {
 }
 
 func (p *ProgramBuilder) Commit() error {
-	// relocate symbol
+	// relocate symbols
 	for i := len(p.insts) - 1; i > 0; i-- {
 		if symbol := p.insts[i-1].Symbol(); strings.HasSuffix(symbol, JumpSymbolType) {
 			p.insts[i] = p.insts[i].WithSymbol(symbol)
@@ -489,7 +493,7 @@ func (p *ProgramBuilder) StrStaticCmp(var1 *Variable, str string) Condition {
 		size := int16(len(str))
 
 		var (
-			regPtr = var1.Ptr()
+			regPtr = var1.ptr()
 			regVal asm.Register
 			err    error
 		)
@@ -527,7 +531,7 @@ func (p *ProgramBuilder) StrCmp(var1 *Variable, var2 *Variable, unroll int) Cond
 		)
 		defer p.regAlloc.Free(regPtr1, regVal1, regPtr2, regVal2)
 
-		regPtr1, regPtr2 = var1.Ptr(), var2.Ptr()
+		regPtr1, regPtr2 = var1.ptr(), var2.ptr()
 
 		regVal1, regVal2, err = p.regAlloc.Alloc2()
 		if err != nil {
@@ -667,27 +671,31 @@ func (p *ProgramBuilder) Equal(var1 *Variable, var2 interface{}) Condition {
 	}
 }
 
-/*func (p *ProgramBuilder) TailCall(mapName string, key *Variable, value *Variable) error {
-	if !value.IsPtr() {
-		return errors.New("value is not a pointer type")
-	}
+func (p *ProgramBuilder) TailCall(mapName string, value interface{}, ret *Variable) {
+	switch v := value.(type) {
+	case *Variable:
+		v.loadReg(asm.R3, 0)
+	default:
+		i, err := ToInt32(value)
+		if err != nil {
+			p.setError(err)
+		}
 
-	key.PtrReg(asm.R2)
+		p.insts = append(p.insts,
+			asm.Mov.Imm(asm.R3, i),
+		)
+	}
 
 	p.insts = append(p.insts,
-		asm.LoadMapPtr(asm.R1, 0).WithReference(mapName),
-		asm.FnMapLookupElem.Call(),
+		asm.LoadMapPtr(asm.R2, 0).WithReference(mapName),
+		asm.FnTailCall.Call(),
 	)
 
-	return value.Store(asm.R0)
-}*/
+	ret.store(asm.R0)
+}
 
 func (p *ProgramBuilder) MapLookup(mapName string, key *Variable, value *Variable) {
-	if !value.IsPtr() {
-		p.setError("value is not a pointer type")
-	}
-
-	key.PtrReg(asm.R2)
+	key.ptrReg(asm.R2)
 
 	p.insts = append(p.insts,
 		asm.LoadMapPtr(asm.R1, 0).WithReference(mapName),
@@ -698,8 +706,8 @@ func (p *ProgramBuilder) MapLookup(mapName string, key *Variable, value *Variabl
 }
 
 func (p *ProgramBuilder) MapUpdate(mapName string, key *Variable, value *Variable, ret *Variable, kind MapUpdateType) {
-	key.PtrReg(asm.R2)
-	value.PtrReg(asm.R3)
+	key.ptrReg(asm.R2)
+	value.ptrReg(asm.R3)
 
 	p.insts = append(p.insts,
 		asm.Mov.Imm(asm.R4, int32(kind)),
@@ -713,7 +721,7 @@ func (p *ProgramBuilder) MapUpdate(mapName string, key *Variable, value *Variabl
 }
 
 func (p *ProgramBuilder) MapDelete(mapName string, key *Variable, ret *Variable) {
-	key.PtrReg(asm.R2)
+	key.ptrReg(asm.R2)
 
 	p.insts = append(p.insts,
 		asm.LoadMapPtr(asm.R1, 0).WithReference(mapName),
@@ -735,14 +743,13 @@ func (p *ProgramBuilder) updateLastInstSymbol(symbol string) {
 
 func (p *ProgramBuilder) IfThenElse(cond Condition, then func(), els func()) {
 	var (
-		sbg = p.jmpSymGen.EnterBlock()
-
-		trueSym  = sbg.GetSymbol("then")
-		falseSym = sbg.GetSymbol("endif")
+		jsg               = p.jmpSymGen.EnterBlock()
+		endifSym, elseSym = jsg.GetSymbol("endif"), jsg.GetSymbol("else")
+		trueSym, falseSym = jsg.GetSymbol("then"), endifSym
 	)
 
 	if els != nil {
-		falseSym = sbg.GetSymbol("else")
+		falseSym = elseSym
 	}
 
 	cond(trueSym, falseSym)
@@ -754,13 +761,13 @@ func (p *ProgramBuilder) IfThenElse(cond Condition, then func(), els func()) {
 	}
 
 	p.insts = append(p.insts,
-		asm.Ja.Label(sbg.GetSymbol("endif")).WithSymbol(sbg.GetSymbol("else")),
+		asm.Ja.Label(endifSym).WithSymbol(elseSym),
 	)
 
 	if els != nil {
 		els()
 	}
-	p.updateLastInstSymbol(sbg.GetSymbol("endif"))
+	p.updateLastInstSymbol(endifSym)
 }
 
 func (p *ProgramBuilder) NewNumberVar(kind VariableType, value int64) *Variable {
@@ -844,6 +851,6 @@ func (p *ProgramBuilder) NewVarV(value interface{}) *Variable {
 	return &Variable{}
 }
 
-func (p *ProgramBuilder) FreeVar() {
+func (p *ProgramBuilder) FreeVar(v *Variable) {
 	// TODO(safchain) think of ptr
 }

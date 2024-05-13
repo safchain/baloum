@@ -51,6 +51,8 @@ func ToInt32(value interface{}) (int32, error) {
 
 func ToInt64(value interface{}) (int64, error) {
 	switch v := value.(type) {
+	case int:
+		return int64(v), nil
 	case int8:
 		return int64(v), nil
 	case uint8:

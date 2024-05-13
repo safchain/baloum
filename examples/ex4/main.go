@@ -38,18 +38,17 @@ func run(test bool) {
 	var prog baloum.Program
 	pb := prog.Edit(baloum.ProgramBuilderOpts{})
 
-	key, _ := pb.NewVarV(uint32(1))
-	value, _ := pb.NewVarV(uint64(77))
-	ret, _ := pb.NewVarV(uint32(0))
+	key := pb.NewVarV(uint32(1))
+	value := pb.NewVarV(uint64(77))
+	ret := pb.NewVarV(uint32(0))
 
 	pb.MapUpdate("map1", key, value, ret, baloum.BPF_ANY)
 
-	valuePtr, _ := pb.NewPtrVar()
+	valuePtr := pb.NewPtrVar()
 
 	pb.MapLookup("map1", key, valuePtr)
-	pb.IfThenElse(pb.IsNotNull(valuePtr), func() error {
-		value, _ = valuePtr.Deref(baloum.UInt64Type, 0)
-		return pb.Printk("value: %d", value)
+	pb.IfThenElse(pb.IsNotNull(valuePtr), func() {
+		pb.Printk("value: %d", valuePtr.Deref(baloum.UInt64Type, 0))
 	}, nil)
 
 	pb.Return(0)

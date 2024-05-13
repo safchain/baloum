@@ -161,32 +161,39 @@ func runProg(t *testing.T, prog *Program, pre func(vm *VM), post func(vm *VM, ou
 			},
 		},
 		Maps: map[string]*ebpf.MapSpec{
-			"map1": {
-				Name:       "map1",
+			"map_array": {
+				Name:       "map_array",
 				Type:       ebpf.Array,
 				KeySize:    4,
 				ValueSize:  4,
 				MaxEntries: 10,
 			},
-			"map2": {
-				Name:       "map2",
+			"map_hash": {
+				Name:       "map_hash",
 				Type:       ebpf.LRUHash,
 				KeySize:    4,
 				ValueSize:  4,
 				MaxEntries: 10,
 			},
-			"map3": {
-				Name:       "map3",
+			"map_dentry": {
+				Name:       "map_dentry",
 				Type:       ebpf.LRUHash,
 				KeySize:    4,
 				ValueSize:  Dentry{}.Sizeof(),
+				MaxEntries: 10,
+			},
+			"map_prog": {
+				Name:       "map_prog",
+				Type:       ebpf.ProgramArray,
+				KeySize:    4,
+				ValueSize:  4,
 				MaxEntries: 10,
 			},
 		},
 	}
 
 	vm := NewVM(spec, Opts{Fncs: fncs, Logger: suggar})
-	err = vm.LoadMaps("map1", "map2", "map3")
+	err = vm.LoadMaps("map_array", "map_hash", "map_dentry", "map_prog")
 	assert.Nil(t, err)
 
 	if pre != nil {
@@ -946,13 +953,12 @@ func TestBuilderMap(t *testing.T) {
 		key := builder.NewVarV(uint32(1))
 		valuePtr := builder.NewPtrVar()
 
-		builder.MapLookup("map1", key, valuePtr)
+		builder.MapLookup("map_array", key, valuePtr)
 		builder.IfThenElse(builder.IsNull(valuePtr), func() {
 			builder.Return(0)
 		}, nil)
 
-		value := valuePtr.Deref(UInt32Type, 0)
-		builder.Printk("value: %d", value)
+		builder.Printk("value: %d", valuePtr.Deref(UInt32Type, 0))
 
 		builder.Return(0)
 
@@ -960,7 +966,7 @@ func TestBuilderMap(t *testing.T) {
 		assert.Nil(t, err)
 
 		runProg(t, &prog, func(vm *VM) {
-			updated, err := vm.Map("map1").Update(uint32(1), uint32(44), BPF_ANY)
+			updated, err := vm.Map("map_array").Update(uint32(1), uint32(44), BPF_ANY)
 			assert.True(t, updated)
 			assert.Nil(t, err)
 		}, func(_ *VM, output string) {
@@ -976,17 +982,16 @@ func TestBuilderMap(t *testing.T) {
 		value := builder.NewVarV(uint32(66))
 		ret := builder.NewVarV(int32(-1))
 
-		builder.MapUpdate("map1", key, value, ret, BPF_ANY)
+		builder.MapUpdate("map_array", key, value, ret, BPF_ANY)
 		builder.IfThenElse(builder.NotEqual(ret, int32(0)),
 			func() {
 				builder.Return(0)
 			}, nil)
 
 		valuePtr := builder.NewPtrVar()
-		builder.MapLookup("map1", key, valuePtr)
+		builder.MapLookup("map_array", key, valuePtr)
 
-		value = valuePtr.Deref(UInt32Type, 0)
-		builder.Printk("value: %d", value)
+		builder.Printk("value: %d", valuePtr.Deref(UInt32Type, 0))
 
 		builder.Return(0)
 
@@ -1007,19 +1012,18 @@ func TestBuilderMap(t *testing.T) {
 		value := builder.NewVarV(uint32(66))
 		ret := builder.NewVarV(int32(-1))
 
-		builder.MapUpdate("map2", key, value, ret, BPF_ANY)
+		builder.MapUpdate("map_hash", key, value, ret, BPF_ANY)
 		builder.IfThenElse(builder.NotEqual(ret, uint32(0)),
 			func() {
 				builder.Return(0)
 			}, nil)
 
 		valuePtr := builder.NewPtrVar()
-		builder.MapLookup("map2", key, valuePtr)
+		builder.MapLookup("map_hash", key, valuePtr)
 
-		value = valuePtr.Deref(UInt32Type, 0)
-		builder.Printk("value: %d", value)
+		builder.Printk("value: %d", valuePtr.Deref(UInt32Type, 0))
 
-		builder.MapDelete("map2", key, ret)
+		builder.MapDelete("map_hash", key, ret)
 		builder.IfThenElse(builder.NotEqual(ret, uint32(0)),
 			func() {
 				builder.Return(0)
@@ -1034,7 +1038,7 @@ func TestBuilderMap(t *testing.T) {
 		}, func(vm *VM, output string) {
 			assert.Equal(t, "value: 66", output)
 
-			data, err := vm.Map("map2").LookupBytes(uint32(2))
+			data, err := vm.Map("map_hash").LookupBytes(uint32(2))
 			assert.NoError(t, err)
 			assert.Nil(t, data)
 		})
@@ -1055,7 +1059,7 @@ func TestBuilderMarshal(t *testing.T) {
 		key := builder.NewVarV(uint32(1))
 		valuePtr := builder.NewPtrVar()
 
-		builder.MapLookup("map3", key, valuePtr)
+		builder.MapLookup("map_dentry", key, valuePtr)
 
 		mountID := valuePtr.Deref(UInt64Type, 0)
 		inode := valuePtr.Deref(UInt32Type, UInt64Type.Sizeof())
@@ -1074,11 +1078,59 @@ func TestBuilderMarshal(t *testing.T) {
 		assert.Nil(t, err)
 
 		runProg(t, &prog, func(vm *VM) {
-			updated, err := vm.Map("map3").Update(uint32(1), &dentry, BPF_ANY)
+			updated, err := vm.Map("map_dentry").Update(uint32(1), &dentry, BPF_ANY)
 			assert.True(t, updated)
 			assert.Nil(t, err)
 		}, func(_ *VM, output string) {
 			assert.Equal(t, "mount_id: 108, inode: 90", output)
+		})
+	})
+}
+
+func TestBuilderTailCall(t *testing.T) {
+	t.Run("call-ok", func(t *testing.T) {
+		var (
+			progEntry Program
+			progExit  Program
+		)
+		builder1 := progEntry.Edit(ProgramBuilderOpts{})
+
+		value := builder1.NewVarV(uint32(1))
+		ret := builder1.NewVarV(int32(-1))
+
+		builder1.IfThenElse(builder1.Equal(value, uint32(1)),
+			func() {
+				builder1.TailCall("map_prog", 1, ret)
+			},
+			nil,
+		)
+
+		builder1.Return(0)
+
+		err := builder1.Commit()
+		assert.Nil(t, err)
+
+		builder2 := progExit.Edit(ProgramBuilderOpts{})
+		builder2.Printk("ok")
+		builder2.Return(0)
+
+		err = builder2.Commit()
+		assert.Nil(t, err)
+
+		runProg(t, &progEntry, func(vm *VM) {
+			progExitSpec := ebpf.ProgramSpec{
+				Name:         "test/exit",
+				SectionName:  "test/exit",
+				Type:         ebpf.Kprobe,
+				Instructions: progExit.Instructions(),
+			}
+			fd := vm.AddProgram(&progExitSpec)
+
+			updated, err := vm.Map("map_prog").Update(uint32(1), fd, BPF_ANY)
+			assert.True(t, updated)
+			assert.Nil(t, err)
+		}, func(_ *VM, output string) {
+			assert.Equal(t, "ok", output)
 		})
 	})
 }
