@@ -56,13 +56,29 @@ type stackMemBlock struct {
 	inuse bool
 }
 
+const (
+	// RNULL is used to mark a register as not usable
+	RNULL = asm.Register(99)
+)
+
+func IsVarReg(reg asm.Register) bool {
+	return reg >= asm.R6 && reg < asm.R10
+}
+
 type RegisterAllocator struct {
-	available []asm.Register
+	available  []asm.Register
+	onExausted func()
 }
 
 func (r *RegisterAllocator) Alloc() (asm.Register, error) {
 	if len(r.available) == 0 {
-		return 0, errors.New("no register available")
+		// try to free some registers
+		r.onExausted()
+
+		// still no register available
+		if len(r.available) == 0 {
+			return 0, errors.New("no register available")
+		}
 	}
 
 	reg := r.available[0]
@@ -86,16 +102,18 @@ func (r *RegisterAllocator) Alloc2() (asm.Register, asm.Register, error) {
 
 func (r *RegisterAllocator) Free(regs ...asm.Register) {
 	for _, reg := range regs {
-		if reg > 3 && reg < 10 {
+		if IsVarReg(reg) {
 			r.available = append([]asm.Register{reg}, r.available...)
 		}
 	}
 }
 
-func NewRegisterAllocator() *RegisterAllocator {
-	var r RegisterAllocator
+func NewRegisterAllocator(onExausted func()) *RegisterAllocator {
+	r := RegisterAllocator{
+		onExausted: onExausted,
+	}
 
-	for reg := asm.R4; reg != asm.R10; reg++ {
+	for reg := asm.R6; reg != asm.R10; reg++ {
 		r.available = append(r.available, reg)
 	}
 
@@ -144,6 +162,7 @@ type Variable struct {
 	Type VariableType
 
 	addr int16
+	reg  asm.Register
 	pb   *ProgramBuilder
 }
 
@@ -159,24 +178,30 @@ func (vr *Variable) Sizeof() int {
 	return vr.Type.Sizeof()
 }
 
+func (vr *Variable) InReg() bool {
+	return vr.reg != RNULL
+}
+
 func (vr *Variable) Deref(vt VariableType, offset int) *Variable {
 	if !vr.IsPtr() {
 		vr.pb.setError("invalid variable type")
 	}
 
-	derefVar := vr.pb.NewVar(vt)
+	if !vr.InReg() {
+		vr.load()
+	}
 
-	reg1, reg2, err := vr.pb.regAlloc.Alloc2()
+	reg2, err := vr.pb.regAlloc.Alloc()
 	if err != nil {
 		vr.pb.setError(err)
 	}
-	defer vr.pb.regAlloc.Free(reg1, reg2)
 
-	vr.pb.insts = append(vr.pb.insts, asm.Instructions{
-		asm.LoadMem(reg1, asm.RFP, vr.addr, vr.AsmSizeof()),
-		asm.LoadMem(reg2, reg1, int16(offset), derefVar.AsmSizeof()),
-		asm.StoreMem(asm.RFP, derefVar.addr, reg2, derefVar.AsmSizeof()),
-	}...)
+	derefVar := vr.pb.NewVar(vt)
+	derefVar.store(reg2)
+
+	vr.pb.insts = append(vr.pb.insts,
+		asm.LoadMem(reg2, vr.reg, int16(offset), derefVar.AsmSizeof()),
+	)
 
 	return derefVar
 }
@@ -193,33 +218,69 @@ func (vr *Variable) ptr() asm.Register {
 
 // PtrReg set reg to the address of the variable
 func (vr *Variable) ptrReg(reg asm.Register) {
+	vr.persist()
+
 	vr.pb.insts = append(vr.pb.insts, asm.Instructions{
 		asm.Mov.Reg(reg, asm.RFP),
 		asm.Add.Imm(reg, int32(vr.addr)),
 	}...)
 }
 
-func (vr *Variable) load(offset int) asm.Register {
+func (vr *Variable) load() asm.Register {
+	if vr.InReg() {
+		return vr.reg
+	}
+
 	regVal, err := vr.pb.regAlloc.Alloc()
 	if err != nil {
 		vr.pb.setError(err)
 	}
 
-	vr.loadReg(regVal, offset)
+	vr.loadReg(regVal)
 
 	return regVal
 }
 
-func (vr *Variable) loadReg(reg asm.Register, offset int) {
-	vr.pb.insts = append(vr.pb.insts, asm.Instructions{
-		asm.LoadMem(reg, asm.RFP, vr.addr+int16(offset), vr.AsmSizeof()),
-	}...)
+func (vr *Variable) loadReg(reg asm.Register) {
+	if vr.InReg() {
+		vr.pb.insts = append(vr.pb.insts,
+			asm.Mov.Reg(reg, vr.reg),
+		)
+	} else {
+		if vr.IsPtr() {
+			vr.pb.insts = append(vr.pb.insts,
+				asm.Mov.Reg(reg, asm.RFP),
+				asm.Add.Imm(reg, int32(vr.addr)),
+			)
+		} else {
+			vr.pb.insts = append(vr.pb.insts,
+				asm.LoadMem(reg, asm.RFP, vr.addr, vr.AsmSizeof()),
+			)
+		}
+	}
+	vr.store(reg)
 }
 
 func (vr *Variable) store(reg asm.Register) {
-	vr.pb.insts = append(vr.pb.insts, asm.Instructions{
-		asm.StoreMem(asm.RFP, int16(vr.addr), reg, asm.DWord),
-	}...)
+	vr.pb.regAlloc.Free(vr.reg)
+	vr.reg = reg
+}
+
+func (vr *Variable) persist() {
+	if !vr.InReg() {
+		return
+	}
+
+	if vr.addr == -1 {
+		vr.addr = vr.pb.stackAlloc(int16(asm.DWord.Sizeof()))
+	}
+
+	vr.pb.insts = append(vr.pb.insts,
+		asm.StoreMem(asm.RFP, int16(vr.addr), vr.reg, vr.AsmSizeof()),
+	)
+
+	vr.pb.regAlloc.Free(vr.reg)
+	vr.reg = RNULL
 }
 
 type JmpSymbolGenerator struct {
@@ -257,16 +318,20 @@ type ProgramBuilder struct {
 	jmpSymGen JmpSymbolGenerator
 	regAlloc  *RegisterAllocator
 	err       error
+	variables []*Variable
 }
 
 func NewProgramBuilder(p *Program, opts ProgramBuilderOpts) *ProgramBuilder {
 	opts.applyDefault()
 
-	return &ProgramBuilder{
-		program:  p,
-		opts:     opts,
-		regAlloc: NewRegisterAllocator(),
+	pb := &ProgramBuilder{
+		program: p,
+		opts:    opts,
 	}
+
+	pb.regAlloc = NewRegisterAllocator(pb.onRegExausted)
+
+	return pb
 }
 
 func (p *ProgramBuilder) Error() error {
@@ -446,16 +511,7 @@ func (p *ProgramBuilder) Printk(format string, args ...interface{}) {
 	addArg := func(reg asm.Register, arg interface{}) error {
 		switch arg := arg.(type) {
 		case *Variable:
-			if arg.IsPtr() {
-				p.insts = append(p.insts,
-					asm.Mov.Reg(reg, asm.RFP),
-					asm.Add.Imm(reg, int32(arg.addr)),
-				)
-			} else {
-				p.insts = append(p.insts,
-					asm.LoadMem(reg, asm.RFP, arg.addr, arg.AsmSizeof()),
-				)
-			}
+			arg.loadReg(reg)
 		case nil:
 		default:
 			if v, err := ToInt32(arg); err == nil {
@@ -631,14 +687,14 @@ func (p *ProgramBuilder) NotEqual(var1 *Variable, var2 interface{}) Condition {
 func (p *ProgramBuilder) Equal(var1 *Variable, var2 interface{}) Condition {
 	return func(trueSym string, falseSym string) {
 		var (
-			regVal1 = var1.load(0)
+			regVal1 = var1.load()
 			regVal2 asm.Register
 		)
 		defer p.regAlloc.Free(regVal1, regVal2)
 
 		switch v2 := var2.(type) {
 		case *Variable:
-			regVal2 = v2.load(0)
+			regVal2 = v2.load()
 
 			p.insts = append(p.insts,
 				asm.JEq.Reg(regVal1, regVal2, trueSym),
@@ -674,7 +730,7 @@ func (p *ProgramBuilder) Equal(var1 *Variable, var2 interface{}) Condition {
 func (p *ProgramBuilder) TailCall(mapName string, value interface{}, ret *Variable) {
 	switch v := value.(type) {
 	case *Variable:
-		v.loadReg(asm.R3, 0)
+		v.loadReg(asm.R3)
 	default:
 		i, err := ToInt32(value)
 		if err != nil {
@@ -770,43 +826,52 @@ func (p *ProgramBuilder) IfThenElse(cond Condition, then func(), els func()) {
 	p.updateLastInstSymbol(endifSym)
 }
 
+func (p *ProgramBuilder) onRegExausted() {
+	for _, vr := range p.variables {
+		if vr.InReg() {
+			vr.persist()
+			return
+		}
+	}
+}
+
 func (p *ProgramBuilder) NewNumberVar(kind VariableType, value int64) *Variable {
-	addr := p.stackAlloc(int16(asm.DWord.Sizeof()))
-	variable := &Variable{Type: kind, addr: addr, pb: p}
+	variable := &Variable{Type: kind, addr: -1, pb: p, reg: RNULL}
 
 	regValue, err := p.regAlloc.Alloc()
 	if err != nil {
 		p.setError(err)
 	}
-	defer p.regAlloc.Free(regValue)
+	variable.reg = regValue
 
 	switch kind {
 	case Int64Type, UInt64Type:
 		p.insts = append(p.insts,
 			asm.LoadImm(regValue, value, asm.DWord),
-			asm.StoreMem(asm.RFP, addr, regValue, asm.DWord),
 		)
 	default:
 		p.insts = append(p.insts,
 			asm.Mov.Imm(regValue, int32(value)),
-			asm.StoreMem(asm.RFP, addr, regValue, asm.DWord),
 		)
 	}
+	p.variables = append(p.variables, variable)
 
 	return variable
 }
 
 func (p *ProgramBuilder) NewByteArrayVar(value []byte) *Variable {
 	addr, insts := p.stackBytes(value)
-	variable := &Variable{Type: PtrType, addr: addr, pb: p}
+	variable := &Variable{Type: PtrType, addr: addr, pb: p, reg: RNULL}
+	p.variables = append(p.variables, variable)
 	p.insts = append(p.insts, insts...)
-
 	return variable
 }
 
 func (p *ProgramBuilder) NewPtrVar() *Variable {
 	addr := p.stackAlloc(int16(asm.DWord.Sizeof()))
-	return &Variable{Type: PtrType, addr: addr, pb: p}
+	variable := &Variable{Type: PtrType, addr: addr, pb: p, reg: RNULL}
+	p.variables = append(p.variables, variable)
+	return variable
 }
 
 func (p *ProgramBuilder) NewVar(kind VariableType) *Variable {
@@ -814,7 +879,7 @@ func (p *ProgramBuilder) NewVar(kind VariableType) *Variable {
 	case Int8Type, UInt8Type, Int16Type, UInt16Type, Int32Type, UInt32Type, Int64Type, UInt64Type:
 		return p.NewNumberVar(t, 0)
 	case PtrType:
-		return p.NewByteArrayVar(nil)
+		return p.NewPtrVar()
 	}
 
 	p.setError("variable type unknown")

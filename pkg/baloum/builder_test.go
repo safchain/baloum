@@ -103,6 +103,45 @@ func TestBuilderStack(t *testing.T) {
 	})
 }
 
+func TestBuilderRegAlloc(t *testing.T) {
+	builder := NewProgramBuilder(nil, ProgramBuilderOpts{})
+
+	assert.Equal(t, 4, len(builder.regAlloc.available))
+
+	v1 := builder.NewNumberVar(Int32Type, 1)
+	assert.Equal(t, 3, len(builder.regAlloc.available))
+	assert.NotEqual(t, RNULL, v1.reg)
+	assert.Equal(t, int16(-1), v1.addr)
+
+	v2 := builder.NewNumberVar(Int32Type, 1)
+	assert.Equal(t, 2, len(builder.regAlloc.available))
+	assert.NotEqual(t, RNULL, v2.reg)
+	assert.Equal(t, int16(-1), v2.addr)
+	assert.NotEqual(t, RNULL, v1.reg)
+	assert.Equal(t, int16(-1), v1.addr)
+
+	v3 := builder.NewNumberVar(Int32Type, 1)
+	assert.Equal(t, 1, len(builder.regAlloc.available))
+	assert.NotEqual(t, RNULL, v3.reg)
+	assert.Equal(t, int16(-1), v3.addr)
+	assert.NotEqual(t, RNULL, v1.reg)
+	assert.Equal(t, int16(-1), v1.addr)
+
+	v4 := builder.NewNumberVar(Int32Type, 1)
+	assert.Equal(t, 0, len(builder.regAlloc.available))
+	assert.NotEqual(t, RNULL, v4.reg)
+	assert.Equal(t, int16(-1), v4.addr)
+	assert.NotEqual(t, RNULL, v1.reg)
+	assert.Equal(t, int16(-1), v1.addr)
+
+	v5 := builder.NewNumberVar(Int32Type, 1)
+	assert.Equal(t, 0, len(builder.regAlloc.available))
+	assert.NotEqual(t, RNULL, v5.reg)
+	assert.Equal(t, int16(-1), v5.addr)
+	assert.Equal(t, RNULL, v1.reg)
+	assert.NotEqual(t, int16(-1), v1.addr)
+}
+
 type Dentry struct {
 	MountID uint64
 	Inode   uint32
@@ -189,12 +228,21 @@ func runProg(t *testing.T, prog *Program, pre func(vm *VM), post func(vm *VM, ou
 				ValueSize:  4,
 				MaxEntries: 10,
 			},
+			"map_text": {
+				Name:       "map_text",
+				Type:       ebpf.ProgramArray,
+				KeySize:    4,
+				ValueSize:  16,
+				MaxEntries: 10,
+			},
 		},
 	}
 
 	vm := NewVM(spec, Opts{Fncs: fncs, Logger: suggar})
-	err = vm.LoadMaps("map_array", "map_hash", "map_dentry", "map_prog")
-	assert.Nil(t, err)
+	for k := range spec.Maps {
+		err = vm.LoadMap(k)
+		assert.Nil(t, err)
+	}
 
 	if pre != nil {
 		pre(vm)
@@ -1083,6 +1131,50 @@ func TestBuilderMarshal(t *testing.T) {
 			assert.Nil(t, err)
 		}, func(_ *VM, output string) {
 			assert.Equal(t, "mount_id: 108, inode: 90", output)
+		})
+	})
+}
+
+func TestBuilderRawStrCmp(t *testing.T) {
+	t.Run("raw-str", func(t *testing.T) {
+		var (
+			prog Program
+		)
+		builder := prog.Edit(ProgramBuilderOpts{})
+
+		key := builder.NewVarV(uint32(1))
+		valuePtr := builder.NewPtrVar()
+
+		builder.MapLookup("map_text", key, valuePtr)
+
+		text := make([]byte, 16)
+		copy(text, "abcdef")
+
+		for i, c := range text {
+			builder.IfThenElse(
+				builder.NotEqual(valuePtr.Deref(UInt8Type, i), uint8(c)),
+				func() {
+					builder.Return(0)
+				},
+				nil,
+			)
+		}
+		builder.Printk("ok")
+
+		builder.Return(0)
+
+		err := builder.Commit()
+		assert.Nil(t, err)
+
+		runProg(t, &prog, func(vm *VM) {
+			text := make([]byte, 16)
+			copy(text, "abcdef")
+
+			updated, err := vm.Map("map_text").Update(uint32(1), text, BPF_ANY)
+			assert.True(t, updated)
+			assert.Nil(t, err)
+		}, func(_ *VM, output string) {
+			assert.Equal(t, "ok", output)
 		})
 	})
 }

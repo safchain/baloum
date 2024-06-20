@@ -38,41 +38,24 @@ func run(test bool) {
 	var prog baloum.Program
 	editor := prog.Edit(baloum.ProgramBuilderOpts{})
 
-	var1, err := editor.NewVarV(uint32(55))
-	if err != nil {
-		suggar.Panicf("unexpected error: %v", err)
-	}
+	var1 := editor.NewVarV(uint32(55))
+	var2 := editor.NewVarV(uint32(88))
+	var3 := editor.NewVarV("test123")
+	var4 := editor.NewVarV("test123")
 
-	var2, err := editor.NewVarV(uint32(88))
-	if err != nil {
-		suggar.Panicf("unexpected error: %v", err)
-	}
-
-	var3, err := editor.NewVarV("test123")
-	if err != nil {
-		suggar.Panicf("unexpected error: %v", err)
-	}
-
-	var4, err := editor.NewVarV("test123")
-	if err != nil {
-		suggar.Panicf("unexpected error: %v", err)
-	}
-
-	err = editor.IfThenElse(
+	editor.IfThenElse(
 		editor.StrCmp(var3, var4, 30),
-		func() error {
-			return editor.Printk(">> %d %d %s", var1, var2, var3)
-		}, func() error {
-			return editor.Printk(">>> else")
+		func() {
+			editor.Printk(">> %d %d %s", var1, var2, var3)
+		}, func() {
+			editor.Printk(">>> else")
 		})
-
-	if err != nil {
-		suggar.Panicf("unexpected error: %v", err)
-	}
 
 	editor.Return(0)
 
-	editor.Commit()
+	if err := editor.Commit(); err != nil {
+		suggar.Panic(err)
+	}
 
 	if err := prog.Prepare(4096); err != nil {
 		suggar.Panicf("unexpected error: %v", err)
