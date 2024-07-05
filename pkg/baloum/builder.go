@@ -206,16 +206,6 @@ func (vr *Variable) Deref(vt VariableType, offset int) *Variable {
 	return derefVar
 }
 
-func (vr *Variable) ptr() asm.Register {
-	reg, err := vr.pb.regAlloc.Alloc()
-	if err != nil {
-		vr.pb.setError(err)
-	}
-	vr.ptrReg(reg)
-
-	return reg
-}
-
 // PtrReg set reg to the address of the variable
 func (vr *Variable) ptrReg(reg asm.Register) {
 	vr.persist()
@@ -271,7 +261,7 @@ func (vr *Variable) persist() {
 		return
 	}
 
-	if vr.addr == -1 {
+	if vr.addr == math.MaxInt16 {
 		vr.addr = vr.pb.stackAlloc(int16(asm.DWord.Sizeof()))
 	}
 
@@ -549,7 +539,7 @@ func (p *ProgramBuilder) StrStaticCmp(var1 *Variable, str string) Condition {
 		size := int16(len(str))
 
 		var (
-			regPtr = var1.ptr()
+			regPtr = var1.load()
 			regVal asm.Register
 			err    error
 		)
@@ -587,7 +577,7 @@ func (p *ProgramBuilder) StrCmp(var1 *Variable, var2 *Variable, unroll int) Cond
 		)
 		defer p.regAlloc.Free(regPtr1, regVal1, regPtr2, regVal2)
 
-		regPtr1, regPtr2 = var1.ptr(), var2.ptr()
+		regPtr1, regPtr2 = var1.load(), var2.load()
 
 		regVal1, regVal2, err = p.regAlloc.Alloc2()
 		if err != nil {
@@ -617,6 +607,14 @@ func (p *ProgramBuilder) StrCmp(var1 *Variable, var2 *Variable, unroll int) Cond
 			asm.Ja.Label(falseSym),
 		)
 	}
+}
+
+func (p *ProgramBuilder) StrIn(var1 *Variable, strs ...string) Condition {
+	var conds []Condition
+	for _, str := range strs {
+		conds = append(conds, p.StrStaticCmp(var1, str))
+	}
+	return p.Or(conds...)
 }
 
 func (p *ProgramBuilder) True() Condition {
@@ -678,9 +676,12 @@ func (p *ProgramBuilder) IsNotNull(var1 *Variable) Condition {
 }
 
 func (p *ProgramBuilder) NotEqual(var1 *Variable, var2 interface{}) Condition {
-	fnc := p.Equal(var1, var2)
+	return p.Not(p.Equal(var1, var2))
+}
+
+func (p *ProgramBuilder) Not(cond Condition) Condition {
 	return func(trueSym, falseSym string) {
-		fnc(falseSym, trueSym)
+		cond(falseSym, trueSym)
 	}
 }
 
@@ -836,7 +837,7 @@ func (p *ProgramBuilder) onRegExausted() {
 }
 
 func (p *ProgramBuilder) NewNumberVar(kind VariableType, value int64) *Variable {
-	variable := &Variable{Type: kind, addr: -1, pb: p, reg: RNULL}
+	variable := &Variable{Type: kind, addr: math.MaxInt16, pb: p, reg: RNULL}
 
 	regValue, err := p.regAlloc.Alloc()
 	if err != nil {
@@ -861,16 +862,37 @@ func (p *ProgramBuilder) NewNumberVar(kind VariableType, value int64) *Variable 
 
 func (p *ProgramBuilder) NewByteArrayVar(value []byte) *Variable {
 	addr, insts := p.stackBytes(value)
-	variable := &Variable{Type: PtrType, addr: addr, pb: p, reg: RNULL}
-	p.variables = append(p.variables, variable)
 	p.insts = append(p.insts, insts...)
+
+	variable := &Variable{Type: PtrType, addr: math.MaxInt16, pb: p, reg: RNULL}
+
+	regValue, err := p.regAlloc.Alloc()
+	if err != nil {
+		p.setError(err)
+	}
+	variable.reg = regValue
+
+	p.insts = append(p.insts,
+		asm.Mov.Reg(regValue, asm.RFP),
+		asm.Add.Imm(regValue, int32(addr)),
+	)
+
+	p.variables = append(p.variables, variable)
+
 	return variable
 }
 
 func (p *ProgramBuilder) NewPtrVar() *Variable {
-	addr := p.stackAlloc(int16(asm.DWord.Sizeof()))
-	variable := &Variable{Type: PtrType, addr: addr, pb: p, reg: RNULL}
+	variable := &Variable{Type: PtrType, addr: math.MaxInt16, pb: p, reg: RNULL}
+
+	regValue, err := p.regAlloc.Alloc()
+	if err != nil {
+		p.setError(err)
+	}
+	variable.reg = regValue
+
 	p.variables = append(p.variables, variable)
+
 	return variable
 }
 

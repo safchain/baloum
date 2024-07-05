@@ -66,7 +66,7 @@ func NewDebugger(enabled bool, variableReaders map[string]VariableReader) *Debug
 	}
 }
 
-func (d *Debugger) dumpRegister(vm *baloum.VM) {
+func dumpRegister(vm *baloum.VM) {
 	for i, v := range vm.Regs() {
 		if i > 0 {
 			fmt.Printf(", ")
@@ -84,7 +84,7 @@ func isASCII(c byte) bool {
 	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 }
 
-func (d *Debugger) dumpBytes(bytes []byte, ascii bool) {
+func dumpBytes(bytes []byte, ascii bool) {
 	var notFirst bool
 	for i, b := range bytes {
 		if i%16 == 0 {
@@ -103,9 +103,9 @@ func (d *Debugger) dumpBytes(bytes []byte, ascii bool) {
 	fmt.Println()
 }
 
-func (d *Debugger) dumpStack(vm *baloum.VM, args ...string) {
+func dumpStack(vm *baloum.VM, args ...string) {
 	ascii := len(args) > 0 && args[len(args)-1] == "c"
-	d.dumpBytes(vm.Stack(), ascii)
+	dumpBytes(vm.Stack(), ascii)
 }
 
 func (d *Debugger) printData(vm *baloum.VM, args ...string) {
@@ -161,10 +161,10 @@ func (d *Debugger) printMap(vm *baloum.VM, args ...string) {
 		}
 
 		fmt.Printf("key:\n")
-		d.dumpBytes(key, false)
+		dumpBytes(key, false)
 
 		fmt.Printf("value:\n")
-		d.dumpBytes(value, false)
+		dumpBytes(value, false)
 	}
 }
 
@@ -257,10 +257,10 @@ LOOP:
 	case ContinueCommand:
 		d.Enabled = false
 	case PrintStackCommand:
-		d.dumpStack(vm, args...)
+		dumpStack(vm, args...)
 		goto LOOP
 	case PrintRegistersCommand:
-		d.dumpRegister(vm)
+		dumpRegister(vm)
 		goto LOOP
 	case PrintVariableCommand:
 		d.printVariable(vm, args...)
@@ -276,12 +276,22 @@ LOOP:
 		goto LOOP
 	case PrintCommand:
 		fmt.Println("Registers:")
-		d.dumpRegister(vm)
+		dumpRegister(vm)
 		fmt.Println("Stack:")
-		d.dumpStack(vm)
+		dumpStack(vm)
 		goto LOOP
 	default:
 		fmt.Fprintf(os.Stdout, "command unknown !\n")
 		goto LOOP
+	}
+}
+
+type SimpleObserver struct{}
+
+func (d *SimpleObserver) ObserveInst(vm *baloum.VM, pc int, inst *asm.Instruction) {
+	if strings.HasPrefix(inst.Symbol(), "dump-regs") {
+		dumpRegister(vm)
+	} else if strings.HasPrefix(inst.Symbol(), "dump-stack") {
+		dumpStack(vm)
 	}
 }
