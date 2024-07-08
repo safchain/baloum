@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"math"
 	"runtime"
+	"runtime/debug"
 	"strings"
 
 	"github.com/cilium/ebpf/asm"
@@ -196,8 +197,7 @@ func (vr *Variable) Deref(vt VariableType, offset int) *Variable {
 		vr.pb.setError(err)
 	}
 
-	derefVar := vr.pb.NewVar(vt)
-	derefVar.store(reg2)
+	derefVar := vr.pb.NewVarReg(vt, reg2)
 
 	vr.pb.insts = append(vr.pb.insts,
 		asm.LoadMem(reg2, vr.reg, int16(offset), derefVar.AsmSizeof()),
@@ -248,11 +248,17 @@ func (vr *Variable) loadReg(reg asm.Register) {
 			)
 		}
 	}
-	vr.store(reg)
+	if IsVarReg(reg) {
+		vr.store(reg)
+	}
 }
 
 func (vr *Variable) store(reg asm.Register) {
 	vr.pb.regAlloc.Free(vr.reg)
+	if vr.reg == 7 && reg == 3 {
+		fmt.Printf("Store: %d %d\n", vr.reg, reg)
+		debug.PrintStack()
+	}
 	vr.reg = reg
 }
 
@@ -269,8 +275,7 @@ func (vr *Variable) persist() {
 		asm.StoreMem(asm.RFP, int16(vr.addr), vr.reg, vr.AsmSizeof()),
 	)
 
-	vr.pb.regAlloc.Free(vr.reg)
-	vr.reg = RNULL
+	vr.store(RNULL)
 }
 
 type JmpSymbolGenerator struct {
@@ -686,6 +691,26 @@ func (p *ProgramBuilder) Not(cond Condition) Condition {
 }
 
 func (p *ProgramBuilder) Equal(var1 *Variable, var2 interface{}) Condition {
+	return p.cmp(var1, var2, asm.JEq)
+}
+
+func (p *ProgramBuilder) Greater(var1 *Variable, var2 interface{}) Condition {
+	return p.cmp(var1, var2, asm.JGT)
+}
+
+func (p *ProgramBuilder) GreaterEqual(var1 *Variable, var2 interface{}) Condition {
+	return p.cmp(var1, var2, asm.JGE)
+}
+
+func (p *ProgramBuilder) Lesser(var1 *Variable, var2 interface{}) Condition {
+	return p.cmp(var1, var2, asm.JLT)
+}
+
+func (p *ProgramBuilder) LesserEqual(var1 *Variable, var2 interface{}) Condition {
+	return p.cmp(var1, var2, asm.JLE)
+}
+
+func (p *ProgramBuilder) cmp(var1 *Variable, var2 interface{}, cmpOp asm.JumpOp) Condition {
 	return func(trueSym string, falseSym string) {
 		var (
 			regVal1 = var1.load()
@@ -698,17 +723,17 @@ func (p *ProgramBuilder) Equal(var1 *Variable, var2 interface{}) Condition {
 			regVal2 = v2.load()
 
 			p.insts = append(p.insts,
-				asm.JEq.Reg(regVal1, regVal2, trueSym),
+				cmpOp.Reg(regVal1, regVal2, trueSym),
 				asm.Ja.Label(falseSym),
 			)
-		case int8, uint8, int16, uint16, int32, uint32:
+		case int, int8, uint8, int16, uint16, int32, uint32:
 			val2, err := ToInt32(v2)
 			if err != nil {
 				p.setError(err)
 			}
 
 			p.insts = append(p.insts,
-				asm.JEq.Imm(regVal1, val2, trueSym),
+				cmpOp.Imm(regVal1, val2, trueSym),
 				asm.Ja.Label(falseSym),
 			)
 		case int64, uint64:
@@ -719,11 +744,11 @@ func (p *ProgramBuilder) Equal(var1 *Variable, var2 interface{}) Condition {
 
 			p.insts = append(p.insts,
 				asm.LoadImm(regVal2, val2, asm.DWord),
-				asm.JEq.Reg(regVal1, regVal2, trueSym),
+				cmpOp.Reg(regVal1, regVal2, trueSym),
 				asm.Ja.Label(falseSym),
 			)
 		default:
-			p.setError("unknown type")
+			p.setError("unknown type: %v", var2)
 		}
 	}
 }
@@ -894,6 +919,10 @@ func (p *ProgramBuilder) NewPtrVar() *Variable {
 	p.variables = append(p.variables, variable)
 
 	return variable
+}
+
+func (p *ProgramBuilder) NewVarReg(kind VariableType, reg asm.Register) *Variable {
+	return &Variable{Type: kind, addr: math.MaxInt16, pb: p, reg: reg}
 }
 
 func (p *ProgramBuilder) NewVar(kind VariableType) *Variable {

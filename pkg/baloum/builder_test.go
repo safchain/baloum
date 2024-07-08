@@ -19,11 +19,14 @@ package baloum
 import (
 	"encoding/binary"
 	"fmt"
+	"math"
+	"net"
 	"testing"
 	"unsafe"
 
 	"github.com/cilium/ebpf"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
 
@@ -111,35 +114,35 @@ func TestBuilderRegAlloc(t *testing.T) {
 	v1 := builder.NewNumberVar(Int32Type, 1)
 	assert.Equal(t, 3, len(builder.regAlloc.available))
 	assert.NotEqual(t, RNULL, v1.reg)
-	assert.Equal(t, int16(-1), v1.addr)
+	assert.Equal(t, int16(math.MaxInt16), v1.addr)
 
 	v2 := builder.NewNumberVar(Int32Type, 1)
 	assert.Equal(t, 2, len(builder.regAlloc.available))
 	assert.NotEqual(t, RNULL, v2.reg)
-	assert.Equal(t, int16(-1), v2.addr)
+	assert.Equal(t, int16(math.MaxInt16), v2.addr)
 	assert.NotEqual(t, RNULL, v1.reg)
-	assert.Equal(t, int16(-1), v1.addr)
+	assert.Equal(t, int16(math.MaxInt16), v1.addr)
 
 	v3 := builder.NewNumberVar(Int32Type, 1)
 	assert.Equal(t, 1, len(builder.regAlloc.available))
 	assert.NotEqual(t, RNULL, v3.reg)
-	assert.Equal(t, int16(-1), v3.addr)
+	assert.Equal(t, int16(math.MaxInt16), v3.addr)
 	assert.NotEqual(t, RNULL, v1.reg)
-	assert.Equal(t, int16(-1), v1.addr)
+	assert.Equal(t, int16(math.MaxInt16), v1.addr)
 
 	v4 := builder.NewNumberVar(Int32Type, 1)
 	assert.Equal(t, 0, len(builder.regAlloc.available))
 	assert.NotEqual(t, RNULL, v4.reg)
-	assert.Equal(t, int16(-1), v4.addr)
+	assert.Equal(t, int16(math.MaxInt16), v4.addr)
 	assert.NotEqual(t, RNULL, v1.reg)
-	assert.Equal(t, int16(-1), v1.addr)
+	assert.Equal(t, int16(math.MaxInt16), v1.addr)
 
 	v5 := builder.NewNumberVar(Int32Type, 1)
 	assert.Equal(t, 0, len(builder.regAlloc.available))
 	assert.NotEqual(t, RNULL, v5.reg)
-	assert.Equal(t, int16(-1), v5.addr)
+	assert.Equal(t, int16(math.MaxInt16), v5.addr)
 	assert.Equal(t, RNULL, v1.reg)
-	assert.NotEqual(t, int16(-1), v1.addr)
+	assert.NotEqual(t, int16(math.MaxInt16), v1.addr)
 }
 
 type Dentry struct {
@@ -160,13 +163,39 @@ func (d *Dentry) MarshalBinary() ([]byte, error) {
 }
 
 func (d *Dentry) UnmarshalBinary(data []byte) error {
-	d.Inode = binary.NativeEndian.Uint32(data[:])
-	d.MountID = binary.NativeEndian.Uint64(data[unsafe.Sizeof(d.Inode):])
+	d.MountID = binary.NativeEndian.Uint64(data[:])
+	d.Inode = binary.NativeEndian.Uint32(data[unsafe.Sizeof(d.MountID):])
 	return nil
 }
 
 func (d Dentry) Sizeof() uint32 {
 	return 16
+}
+
+type IPPort struct {
+	IP   uint32
+	Port uint32
+}
+
+// TODO: generate unmarshaller + marshaller based on tag
+func (d *IPPort) MarshalBinary() ([]byte, error) {
+	sizeOfIP := unsafe.Sizeof(d.IP)
+	data := make([]byte, d.Sizeof())
+
+	binary.NativeEndian.PutUint32(data, d.IP)
+	binary.NativeEndian.PutUint32(data[sizeOfIP:], d.Port)
+
+	return data, nil
+}
+
+func (d *IPPort) UnmarshalBinary(data []byte) error {
+	d.IP = binary.NativeEndian.Uint32(data[:])
+	d.Port = binary.NativeEndian.Uint32(data[unsafe.Sizeof(d.IP):])
+	return nil
+}
+
+func (d IPPort) Sizeof() uint32 {
+	return 8
 }
 
 func runProg(t *testing.T, prog *Program, pre func(vm *VM), post func(vm *VM, output string)) {
@@ -235,6 +264,13 @@ func runProg(t *testing.T, prog *Program, pre func(vm *VM), post func(vm *VM, ou
 				ValueSize:  16,
 				MaxEntries: 10,
 			},
+			"map_ip": {
+				Name:       "map_ip",
+				Type:       ebpf.LRUHash,
+				KeySize:    4,
+				ValueSize:  IPPort{}.Sizeof(),
+				MaxEntries: 10,
+			},
 		},
 	}
 
@@ -268,7 +304,7 @@ func TestBuilderPrintk(t *testing.T) {
 		builder.Return(0)
 
 		err := builder.Commit()
-		assert.Nil(t, err)
+		require.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "this is a printk test, values: 55 88 test", output)
@@ -294,7 +330,7 @@ func TestBuilderCond(t *testing.T) {
 		builder.Return(0)
 
 		err := builder.Commit()
-		assert.Nil(t, err)
+		require.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
@@ -317,7 +353,7 @@ func TestBuilderCond(t *testing.T) {
 		builder.Return(0)
 
 		err := builder.Commit()
-		assert.Nil(t, err)
+		require.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
@@ -339,7 +375,7 @@ func TestBuilderCond(t *testing.T) {
 		builder.Return(0)
 
 		err := builder.Commit()
-		assert.Nil(t, err)
+		require.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "", output)
@@ -361,7 +397,7 @@ func TestBuilderCond(t *testing.T) {
 		builder.Return(0)
 
 		err := builder.Commit()
-		assert.Nil(t, err)
+		require.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
@@ -382,7 +418,7 @@ func TestBuilderCond(t *testing.T) {
 		builder.Return(0)
 
 		err := builder.Commit()
-		assert.Nil(t, err)
+		require.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 		})
@@ -403,7 +439,7 @@ func TestBuilderCond(t *testing.T) {
 		builder.Return(0)
 
 		err := builder.Commit()
-		assert.Nil(t, err)
+		require.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
@@ -432,7 +468,7 @@ func TestBuilderCond(t *testing.T) {
 		builder.Return(0)
 
 		err := builder.Commit()
-		assert.Nil(t, err)
+		require.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
@@ -463,7 +499,7 @@ func TestBuilderCond(t *testing.T) {
 		builder.Return(0)
 
 		err := builder.Commit()
-		assert.Nil(t, err)
+		require.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
@@ -489,7 +525,7 @@ func TestBuilderCond(t *testing.T) {
 		builder.Return(0)
 
 		err := builder.Commit()
-		assert.Nil(t, err)
+		require.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
@@ -514,7 +550,7 @@ func TestBuilderCond(t *testing.T) {
 		builder.Return(0)
 
 		err := builder.Commit()
-		assert.Nil(t, err)
+		require.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
@@ -539,7 +575,7 @@ func TestBuilderCond(t *testing.T) {
 		builder.Return(0)
 
 		err := builder.Commit()
-		assert.Nil(t, err)
+		require.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
@@ -565,7 +601,7 @@ func TestBuilderCond(t *testing.T) {
 		builder.Return(0)
 
 		err := builder.Commit()
-		assert.Nil(t, err)
+		require.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
@@ -591,7 +627,7 @@ func TestBuilderCond(t *testing.T) {
 		builder.Return(0)
 
 		err := builder.Commit()
-		assert.Nil(t, err)
+		require.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
@@ -616,7 +652,7 @@ func TestBuilderCond(t *testing.T) {
 		builder.Return(0)
 
 		err := builder.Commit()
-		assert.Nil(t, err)
+		require.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
@@ -639,7 +675,7 @@ func TestBuilderCond(t *testing.T) {
 		builder.Return(0)
 
 		err := builder.Commit()
-		assert.Nil(t, err)
+		require.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
@@ -662,7 +698,7 @@ func TestBuilderCond(t *testing.T) {
 		builder.Return(0)
 
 		err := builder.Commit()
-		assert.Nil(t, err)
+		require.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
@@ -685,7 +721,7 @@ func TestBuilderCond(t *testing.T) {
 		builder.Return(0)
 
 		err := builder.Commit()
-		assert.Nil(t, err)
+		require.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
@@ -708,7 +744,7 @@ func TestBuilderCond(t *testing.T) {
 		builder.Return(0)
 
 		err := builder.Commit()
-		assert.Nil(t, err)
+		require.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
@@ -734,7 +770,7 @@ func TestBuilderCond(t *testing.T) {
 		builder.Return(0)
 
 		err := builder.Commit()
-		assert.Nil(t, err)
+		require.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
@@ -760,7 +796,7 @@ func TestBuilderCond(t *testing.T) {
 		builder.Return(0)
 
 		err := builder.Commit()
-		assert.Nil(t, err)
+		require.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
@@ -783,7 +819,7 @@ func TestBuilderCond(t *testing.T) {
 		builder.Return(0)
 
 		err := builder.Commit()
-		assert.Nil(t, err)
+		require.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
@@ -806,7 +842,7 @@ func TestBuilderCond(t *testing.T) {
 		builder.Return(0)
 
 		err := builder.Commit()
-		assert.Nil(t, err)
+		require.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
@@ -829,7 +865,7 @@ func TestBuilderCond(t *testing.T) {
 		builder.Return(0)
 
 		err := builder.Commit()
-		assert.Nil(t, err)
+		require.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
@@ -855,7 +891,7 @@ func TestBuilderCond(t *testing.T) {
 		builder.Return(0)
 
 		err := builder.Commit()
-		assert.Nil(t, err)
+		require.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
@@ -881,10 +917,114 @@ func TestBuilderCond(t *testing.T) {
 		builder.Return(0)
 
 		err := builder.Commit()
-		assert.Nil(t, err)
+		require.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
+		})
+	})
+
+	t.Run("greater-ok-1", func(t *testing.T) {
+		var prog Program
+		builder := prog.Edit(ProgramBuilderOpts{})
+
+		var1 := builder.NewVarV(uint32(45))
+		var2 := builder.NewVarV(uint32(44))
+
+		builder.IfThenElse(
+			builder.Greater(var1, var2),
+			func() {
+				builder.Printk("ok")
+			},
+			func() {
+				builder.Printk("ko")
+			},
+		)
+		builder.Return(0)
+
+		err := builder.Commit()
+		require.Nil(t, err)
+
+		runProg(t, &prog, nil, func(_ *VM, output string) {
+			assert.Equal(t, "ok", output)
+		})
+	})
+
+	t.Run("greater-equal-ok-1", func(t *testing.T) {
+		var prog Program
+		builder := prog.Edit(ProgramBuilderOpts{})
+
+		var1 := builder.NewVarV(uint32(44))
+		var2 := builder.NewVarV(uint32(44))
+
+		builder.IfThenElse(
+			builder.GreaterEqual(var1, var2),
+			func() {
+				builder.Printk("ok")
+			},
+			func() {
+				builder.Printk("ko")
+			},
+		)
+		builder.Return(0)
+
+		err := builder.Commit()
+		require.Nil(t, err)
+
+		runProg(t, &prog, nil, func(_ *VM, output string) {
+			assert.Equal(t, "ok", output)
+		})
+	})
+
+	t.Run("lesser-ok-1", func(t *testing.T) {
+		var prog Program
+		builder := prog.Edit(ProgramBuilderOpts{})
+
+		var1 := builder.NewVarV(uint32(44))
+		var2 := builder.NewVarV(uint32(45))
+
+		builder.IfThenElse(
+			builder.Lesser(var1, var2),
+			func() {
+				builder.Printk("ok")
+			},
+			func() {
+				builder.Printk("ko")
+			},
+		)
+		builder.Return(0)
+
+		err := builder.Commit()
+		require.Nil(t, err)
+
+		runProg(t, &prog, nil, func(_ *VM, output string) {
+			assert.Equal(t, "ok", output)
+		})
+	})
+
+	t.Run("lesser-equal-ok-1", func(t *testing.T) {
+		var prog Program
+		builder := prog.Edit(ProgramBuilderOpts{})
+
+		var1 := builder.NewVarV(uint32(44))
+		var2 := builder.NewVarV(uint32(44))
+
+		builder.IfThenElse(
+			builder.LesserEqual(var1, var2),
+			func() {
+				builder.Printk("ok")
+			},
+			func() {
+				builder.Printk("ko")
+			},
+		)
+		builder.Return(0)
+
+		err := builder.Commit()
+		require.Nil(t, err)
+
+		runProg(t, &prog, nil, func(_ *VM, output string) {
+			assert.Equal(t, "ok", output)
 		})
 	})
 }
@@ -908,7 +1048,7 @@ func TestBuilderStrCmp(t *testing.T) {
 		builder.Return(0)
 
 		err := builder.Commit()
-		assert.Nil(t, err)
+		require.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
@@ -933,7 +1073,7 @@ func TestBuilderStrCmp(t *testing.T) {
 		builder.Return(0)
 
 		err := builder.Commit()
-		assert.Nil(t, err)
+		require.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
@@ -959,7 +1099,7 @@ func TestBuilderStrCmp(t *testing.T) {
 		builder.Return(0)
 
 		err := builder.Commit()
-		assert.Nil(t, err)
+		require.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
@@ -985,7 +1125,7 @@ func TestBuilderStrCmp(t *testing.T) {
 		builder.Return(0)
 
 		err := builder.Commit()
-		assert.Nil(t, err)
+		require.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
 			assert.Equal(t, "ko", output)
@@ -1011,7 +1151,7 @@ func TestBuilderMap(t *testing.T) {
 		builder.Return(0)
 
 		err := builder.Commit()
-		assert.Nil(t, err)
+		require.Nil(t, err)
 
 		runProg(t, &prog, func(vm *VM) {
 			updated, err := vm.Map("map_array").Update(uint32(1), uint32(44), BPF_ANY)
@@ -1044,7 +1184,7 @@ func TestBuilderMap(t *testing.T) {
 		builder.Return(0)
 
 		err := builder.Commit()
-		assert.Nil(t, err)
+		require.Nil(t, err)
 
 		runProg(t, &prog, func(vm *VM) {
 		}, func(_ *VM, output string) {
@@ -1083,7 +1223,7 @@ func TestBuilderMap(t *testing.T) {
 		builder.Return(0)
 
 		err := builder.Commit()
-		assert.Nil(t, err)
+		require.Nil(t, err)
 
 		runProg(t, &prog, func(vm *VM) {
 		}, func(vm *VM, output string) {
@@ -1129,7 +1269,7 @@ func TestBuilderMarshal(t *testing.T) {
 		builder.Return(0)
 
 		err := builder.Commit()
-		assert.Nil(t, err)
+		require.Nil(t, err)
 
 		runProg(t, &prog, func(vm *VM) {
 			updated, err := vm.Map("map_dentry").Update(uint32(1), &dentry, BPF_ANY)
@@ -1173,7 +1313,7 @@ func TestBuilderRawStrCmp(t *testing.T) {
 		builder.Return(0)
 
 		err := builder.Commit()
-		assert.Nil(t, err)
+		require.Nil(t, err)
 
 		runProg(t, &prog, func(vm *VM) {
 			updated, err := vm.Map("map_text").Update(uint32(1), text, BPF_ANY)
@@ -1207,7 +1347,7 @@ func TestBuilderStrIn(t *testing.T) {
 		builder.Return(0)
 
 		err := builder.Commit()
-		assert.Nil(t, err)
+		require.Nil(t, err)
 
 		runProg(t, &prog, func(vm *VM) {
 			text := make([]byte, 16)
@@ -1244,7 +1384,7 @@ func TestBuilderStrIn(t *testing.T) {
 		builder.Return(0)
 
 		err := builder.Commit()
-		assert.Nil(t, err)
+		require.Nil(t, err)
 
 		runProg(t, &prog, func(vm *VM) {
 			text := make([]byte, 16)
@@ -1281,7 +1421,7 @@ func TestBuilderStrIn(t *testing.T) {
 		builder.Return(0)
 
 		err := builder.Commit()
-		assert.Nil(t, err)
+		require.Nil(t, err)
 
 		runProg(t, &prog, func(vm *VM) {
 			text := make([]byte, 16)
@@ -1321,14 +1461,14 @@ func TestBuilderTailCall(t *testing.T) {
 		progEntryBuilder.Return(0)
 
 		err := progEntryBuilder.Commit()
-		assert.Nil(t, err)
+		require.Nil(t, err)
 
 		progExitBuilder := progExit.Edit(ProgramBuilderOpts{})
 		progExitBuilder.Printk("ok")
 		progExitBuilder.Return(0)
 
 		err = progExitBuilder.Commit()
-		assert.Nil(t, err)
+		require.Nil(t, err)
 
 		runProg(t, &progEntry, func(vm *VM) {
 			progExitSpec := ebpf.ProgramSpec{
@@ -1371,14 +1511,14 @@ func TestBuilderTailCall(t *testing.T) {
 		progEntryBuilder.Return(0)
 
 		err := progEntryBuilder.Commit()
-		assert.Nil(t, err)
+		require.Nil(t, err)
 
 		progExitBuilder := progExit.Edit(ProgramBuilderOpts{})
 		progExitBuilder.Printk("ok")
 		progExitBuilder.Return(0)
 
 		err = progExitBuilder.Commit()
-		assert.Nil(t, err)
+		require.Nil(t, err)
 
 		runProg(t, &progEntry, func(vm *VM) {
 			progExitSpec := ebpf.ProgramSpec{
@@ -1394,6 +1534,187 @@ func TestBuilderTailCall(t *testing.T) {
 			assert.Nil(t, err)
 		}, func(_ *VM, output string) {
 			assert.Equal(t, "ok", output)
+		})
+	})
+}
+
+func ipRange(cidr string) (uint32, uint32) {
+	firstIP, ipNet, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return 0, 0
+	}
+
+	ones, bits := ipNet.Mask.Size()
+	num := uint32(1 << (bits - ones))
+
+	first := binary.BigEndian.Uint32(firstIP.To4())
+
+	return first, first + num - 1
+}
+
+func TestBuilderIPRange(t *testing.T) {
+	t.Run("ip-range-ok-1", func(t *testing.T) {
+		var (
+			ip32   = binary.BigEndian.Uint32(net.ParseIP("192.168.1.18").To4())
+			prog   Program
+			ipport = IPPort{
+				IP:   ip32,
+				Port: 80,
+			}
+		)
+		builder := prog.Edit(ProgramBuilderOpts{})
+
+		key := builder.NewVarV(uint32(1))
+		valuePtr := builder.NewPtrVar()
+
+		builder.MapLookup("map_ip", key, valuePtr)
+		builder.IfThenElse(builder.IsNull(valuePtr), func() {
+			builder.Return(0)
+		}, nil)
+
+		ip := valuePtr.Deref(UInt32Type, 0)
+		port := valuePtr.Deref(UInt32Type, UInt32Type.Sizeof())
+
+		ipFirst, ipLast := ipRange("192.168.1.0/24")
+
+		builder.IfThenElse(builder.And(
+			builder.GreaterEqual(ip, int64(ipFirst)), // force 64 to avoid int32 signed overflow
+			builder.LesserEqual(ip, int64(ipLast)),   // force 64 to avoid int32 signed overflow
+			builder.Equal(port, 80),
+		),
+			func() {
+				builder.Printk("ip in range: %d, port: %d", ip, port)
+			},
+			nil,
+		)
+
+		builder.Return(0)
+
+		err := builder.Commit()
+		require.Nil(t, err)
+
+		runProg(t, &prog, func(vm *VM) {
+			updated, err := vm.Map("map_ip").Update(uint32(1), &ipport, BPF_ANY)
+			assert.True(t, updated)
+			assert.Nil(t, err)
+		}, func(_ *VM, output string) {
+			assert.Equal(t, fmt.Sprintf("ip in range: %d, port: 80", ip32), output)
+		})
+	})
+
+	t.Run("ip-range-ok-2", func(t *testing.T) {
+		var (
+			ip32   = binary.BigEndian.Uint32(net.ParseIP("192.168.1.18").To4())
+			prog   Program
+			ipport = IPPort{
+				IP:   ip32,
+				Port: 80,
+			}
+		)
+		builder := prog.Edit(ProgramBuilderOpts{})
+
+		key := builder.NewVarV(uint32(1))
+		valuePtr := builder.NewPtrVar()
+
+		builder.MapLookup("map_ip", key, valuePtr)
+		builder.IfThenElse(builder.IsNull(valuePtr), func() {
+			builder.Return(0)
+		}, nil)
+
+		ip := valuePtr.Deref(UInt32Type, 0)
+		port := valuePtr.Deref(UInt32Type, UInt32Type.Sizeof())
+
+		ip1First, ip1Last := ipRange("192.168.0.0/24")
+		ip2First, ip2Last := ipRange("192.168.1.0/24")
+
+		match1 := builder.And(
+			builder.GreaterEqual(ip, int64(ip1First)), // force 64 to avoid int32 signed overflow
+			builder.LesserEqual(ip, int64(ip1Last)),   // force 64 to avoid int32 signed overflow
+			builder.Equal(port, 80),
+		)
+
+		match2 := builder.And(
+			builder.GreaterEqual(ip, int64(ip2First)), // force 64 to avoid int32 signed overflow
+			builder.LesserEqual(ip, int64(ip2Last)),   // force 64 to avoid int32 signed overflow
+			builder.Equal(port, 80),
+		)
+
+		builder.IfThenElse(builder.Or(match1, match2),
+			func() {
+				builder.Printk("ip in range: %d, port: %d", ip, port)
+			},
+			nil,
+		)
+
+		builder.Return(0)
+
+		err := builder.Commit()
+		require.Nil(t, err)
+
+		runProg(t, &prog, func(vm *VM) {
+			updated, err := vm.Map("map_ip").Update(uint32(1), &ipport, BPF_ANY)
+			assert.True(t, updated)
+			assert.Nil(t, err)
+		}, func(_ *VM, output string) {
+			assert.Equal(t, fmt.Sprintf("ip in range: %d, port: 80", ip32), output)
+		})
+	})
+
+	t.Run("ip-range-ko-1", func(t *testing.T) {
+		var (
+			ip32   = binary.BigEndian.Uint32(net.ParseIP("192.168.1.18").To4())
+			prog   Program
+			ipport = IPPort{
+				IP:   ip32,
+				Port: 80,
+			}
+		)
+		builder := prog.Edit(ProgramBuilderOpts{})
+
+		key := builder.NewVarV(uint32(1))
+		valuePtr := builder.NewPtrVar()
+
+		builder.MapLookup("map_ip", key, valuePtr)
+		builder.IfThenElse(builder.IsNull(valuePtr), func() {
+			builder.Return(0)
+		}, nil)
+
+		ip := valuePtr.Deref(UInt32Type, 0)
+		port := valuePtr.Deref(UInt32Type, UInt32Type.Sizeof())
+
+		ip1First, ip1Last := ipRange("192.168.0.0/24")
+		ip2First, ip2Last := ipRange("192.168.1.0/24")
+
+		match1 := builder.And(
+			builder.GreaterEqual(ip, int64(ip1First)), // force 64 to avoid int32 signed overflow
+			builder.LesserEqual(ip, int64(ip1Last)),   // force 64 to avoid int32 signed overflow
+			builder.Equal(port, 80),
+		)
+
+		match2 := builder.And(
+			builder.GreaterEqual(ip, int64(ip2First)), // force 64 to avoid int32 signed overflow
+			builder.LesserEqual(ip, int64(ip2Last)),   // force 64 to avoid int32 signed overflow
+			builder.Equal(port, 8080),
+		)
+
+		builder.IfThenElse(builder.Or(match1, match2),
+			nil,
+			func() {
+				builder.Printk("ko")
+			},
+		)
+
+		builder.Return(0)
+
+		err := builder.Commit()
+		require.Nil(t, err)
+
+		runProg(t, &prog, func(vm *VM) {
+			updated, err := vm.Map("map_ip").Update(uint32(1), &ipport, BPF_ANY)
+			assert.True(t, updated)
+			assert.Nil(t, err)
+		}, func(_ *VM, output string) {
+			assert.Equal(t, "ko", output)
 		})
 	})
 }
