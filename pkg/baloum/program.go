@@ -42,6 +42,10 @@ func (p *Program) Edit(opts ProgramBuilderOpts) *ProgramBuilder {
 	return NewProgramBuilder(p, opts)
 }
 
+func (p *Program) PrintInstructions() {
+	fmt.Printf("%+v\n", p.insts)
+}
+
 func (p *Program) Prepare(instLimit int) error {
 	if err := p.ResolveReferences(); err != nil {
 		return err
@@ -58,6 +62,7 @@ func (p *Program) Prepare(instLimit int) error {
 	return nil
 }
 
+// VerifyDag super naive Dag verification
 func (p *Program) VerifyDag() error {
 	var offsets []int
 

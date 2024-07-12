@@ -59,6 +59,8 @@ func run(test bool) {
 		suggar.Panicf("unexpected error: %v", err)
 	}
 
+	prog.PrintInstructions()
+
 	spec := &ebpf.CollectionSpec{
 		Programs: map[string]*ebpf.ProgramSpec{
 			"kprobe_execve": {

@@ -21,10 +21,10 @@ import (
 	"fmt"
 	"math"
 	"runtime"
-	"runtime/debug"
 	"strings"
 
 	"github.com/cilium/ebpf/asm"
+	"golang.org/x/exp/slices"
 )
 
 type BuilderError struct {
@@ -103,7 +103,7 @@ func (r *RegisterAllocator) Alloc2() (asm.Register, asm.Register, error) {
 
 func (r *RegisterAllocator) Free(regs ...asm.Register) {
 	for _, reg := range regs {
-		if IsVarReg(reg) {
+		if IsVarReg(reg) && reg != RNULL {
 			r.available = append([]asm.Register{reg}, r.available...)
 		}
 	}
@@ -167,6 +167,15 @@ type Variable struct {
 	pb   *ProgramBuilder
 }
 
+func newVariable(kind VariableType, addr int16, reg asm.Register, pb *ProgramBuilder) *Variable {
+	return &Variable{
+		Type: kind,
+		addr: addr,
+		reg:  reg,
+		pb:   pb,
+	}
+}
+
 func (vr *Variable) IsPtr() bool {
 	return vr.Type.IsPtr()
 }
@@ -197,7 +206,7 @@ func (vr *Variable) Deref(vt VariableType, offset int) *Variable {
 		vr.pb.setError(err)
 	}
 
-	derefVar := vr.pb.NewVarReg(vt, reg2)
+	derefVar := vr.pb.newVarReg(vt, reg2)
 
 	vr.pb.insts = append(vr.pb.insts,
 		asm.LoadMem(reg2, vr.reg, int16(offset), derefVar.AsmSizeof()),
@@ -255,10 +264,6 @@ func (vr *Variable) loadReg(reg asm.Register) {
 
 func (vr *Variable) store(reg asm.Register) {
 	vr.pb.regAlloc.Free(vr.reg)
-	if vr.reg == 7 && reg == 3 {
-		fmt.Printf("Store: %d %d\n", vr.reg, reg)
-		debug.PrintStack()
-	}
 	vr.reg = reg
 }
 
@@ -346,6 +351,60 @@ func (p *ProgramBuilder) setError(arg1 interface{}, args ...interface{}) {
 	}
 }
 
+func deadCodeElimination(insts asm.Instructions) asm.Instructions {
+	// super naive dead code elimination
+	var (
+		cleaned asm.Instructions
+		unreach bool
+	)
+	for _, inst := range insts {
+		if inst.Symbol() != "" {
+			unreach = false
+		}
+
+		if !unreach {
+			cleaned = append(cleaned, inst)
+		}
+
+		switch inst.OpCode {
+		case asm.Return().OpCode:
+			unreach = true
+		}
+	}
+
+	return cleaned
+}
+
+func (p *ProgramBuilder) swapReg(reg asm.Register) {
+	for _, v := range p.variables {
+		if v.InReg() && v.reg == reg {
+			targetReg, err := p.regAlloc.Alloc()
+			if err != nil {
+				p.setError(err)
+			}
+
+			if targetReg != reg {
+				p.insts = append(p.insts,
+					asm.Mov.Reg(targetReg, reg),
+				)
+
+				v.store(targetReg)
+			}
+
+			break
+		}
+	}
+}
+
+func (p *ProgramBuilder) CallFn(fn asm.BuiltinFunc) asm.Instructions {
+	// invalidate R0
+	p.swapReg(asm.R0)
+
+	return asm.Instructions{
+		fn.Call(),
+	}
+}
+
 func (p *ProgramBuilder) Commit() error {
 	// relocate symbols
 	for i := len(p.insts) - 1; i > 0; i-- {
@@ -354,7 +413,12 @@ func (p *ProgramBuilder) Commit() error {
 			p.insts[i-1] = p.insts[i-1].WithSymbol("")
 		}
 	}
+
+	p.insts = deadCodeElimination(p.insts)
+
 	p.program.insts = append(p.program.insts, p.insts...)
+
+	p.program.PrintInstructions()
 
 	return p.err
 }
@@ -529,7 +593,7 @@ func (p *ProgramBuilder) Printk(format string, args ...interface{}) {
 	}
 
 	p.insts = append(p.insts,
-		asm.FnTracePrintk.Call(),
+		p.CallFn(asm.FnTracePrintk)...,
 	)
 
 	p.stackFree(addr)
@@ -548,7 +612,7 @@ func (p *ProgramBuilder) StrStaticCmp(var1 *Variable, str string) Condition {
 			regVal asm.Register
 			err    error
 		)
-		defer p.regAlloc.Free(regPtr, regVal)
+		defer p.regAlloc.Free(regVal)
 
 		if regVal, err = p.regAlloc.Alloc(); err != nil {
 			p.setError(err)
@@ -580,7 +644,7 @@ func (p *ProgramBuilder) StrCmp(var1 *Variable, var2 *Variable, unroll int) Cond
 			regPtr2, regVal2 asm.Register
 			err              error
 		)
-		defer p.regAlloc.Free(regPtr1, regVal1, regPtr2, regVal2)
+		defer p.regAlloc.Free(regVal1, regVal2)
 
 		regPtr1, regPtr2 = var1.load(), var2.load()
 
@@ -716,7 +780,6 @@ func (p *ProgramBuilder) cmp(var1 *Variable, var2 interface{}, cmpOp asm.JumpOp)
 			regVal1 = var1.load()
 			regVal2 asm.Register
 		)
-		defer p.regAlloc.Free(regVal1, regVal2)
 
 		switch v2 := var2.(type) {
 		case *Variable:
@@ -741,6 +804,12 @@ func (p *ProgramBuilder) cmp(var1 *Variable, var2 interface{}, cmpOp asm.JumpOp)
 			if err != nil {
 				p.setError(err)
 			}
+
+			regVal2, err := p.regAlloc.Alloc()
+			if err != nil {
+				p.setError(err)
+			}
+			defer p.regAlloc.Free(regVal2)
 
 			p.insts = append(p.insts,
 				asm.LoadImm(regVal2, val2, asm.DWord),
@@ -770,8 +839,8 @@ func (p *ProgramBuilder) TailCall(mapName string, value interface{}, ret *Variab
 
 	p.insts = append(p.insts,
 		asm.LoadMapPtr(asm.R2, 0).WithReference(mapName),
-		asm.FnTailCall.Call(),
 	)
+	p.insts = append(p.insts, p.CallFn(asm.FnTailCall)...)
 
 	ret.store(asm.R0)
 }
@@ -781,8 +850,19 @@ func (p *ProgramBuilder) MapLookup(mapName string, key *Variable, value *Variabl
 
 	p.insts = append(p.insts,
 		asm.LoadMapPtr(asm.R1, 0).WithReference(mapName),
-		asm.FnMapLookupElem.Call(),
 	)
+	p.insts = append(p.insts, p.CallFn(asm.FnMapLookupElem)...)
+
+	value.store(asm.R0)
+}
+
+func (p *ProgramBuilder) MapLookupFD(fd int, key *Variable, value *Variable) {
+	key.ptrReg(asm.R2)
+
+	p.insts = append(p.insts,
+		asm.LoadMapPtr(asm.R1, fd),
+	)
+	p.insts = append(p.insts, p.CallFn(asm.FnMapLookupElem)...)
 
 	value.store(asm.R0)
 }
@@ -794,8 +874,8 @@ func (p *ProgramBuilder) MapUpdate(mapName string, key *Variable, value *Variabl
 	p.insts = append(p.insts,
 		asm.Mov.Imm(asm.R4, int32(kind)),
 		asm.LoadMapPtr(asm.R1, 0).WithReference(mapName),
-		asm.FnMapUpdateElem.Call(),
 	)
+	p.insts = append(p.insts, p.CallFn(asm.FnMapUpdateElem)...)
 
 	if ret != nil {
 		ret.store(asm.R0)
@@ -807,8 +887,8 @@ func (p *ProgramBuilder) MapDelete(mapName string, key *Variable, ret *Variable)
 
 	p.insts = append(p.insts,
 		asm.LoadMapPtr(asm.R1, 0).WithReference(mapName),
-		asm.FnMapDeleteElem.Call(),
 	)
+	p.insts = append(p.insts, p.CallFn(asm.FnMapDeleteElem)...)
 
 	if ret != nil {
 		ret.store(asm.R0)
@@ -854,7 +934,7 @@ func (p *ProgramBuilder) IfThenElse(cond Condition, then func(), els func()) {
 
 func (p *ProgramBuilder) onRegExausted() {
 	for _, vr := range p.variables {
-		if vr.InReg() {
+		if vr.InReg() && IsVarReg(vr.reg) {
 			vr.persist()
 			return
 		}
@@ -862,7 +942,7 @@ func (p *ProgramBuilder) onRegExausted() {
 }
 
 func (p *ProgramBuilder) NewNumberVar(kind VariableType, value int64) *Variable {
-	variable := &Variable{Type: kind, addr: math.MaxInt16, pb: p, reg: RNULL}
+	variable := newVariable(kind, math.MaxInt16, RNULL, p)
 
 	regValue, err := p.regAlloc.Alloc()
 	if err != nil {
@@ -889,7 +969,7 @@ func (p *ProgramBuilder) NewByteArrayVar(value []byte) *Variable {
 	addr, insts := p.stackBytes(value)
 	p.insts = append(p.insts, insts...)
 
-	variable := &Variable{Type: PtrType, addr: math.MaxInt16, pb: p, reg: RNULL}
+	variable := newVariable(PtrType, math.MaxInt16, RNULL, p)
 
 	regValue, err := p.regAlloc.Alloc()
 	if err != nil {
@@ -908,7 +988,7 @@ func (p *ProgramBuilder) NewByteArrayVar(value []byte) *Variable {
 }
 
 func (p *ProgramBuilder) NewPtrVar() *Variable {
-	variable := &Variable{Type: PtrType, addr: math.MaxInt16, pb: p, reg: RNULL}
+	variable := newVariable(PtrType, math.MaxInt16, RNULL, p)
 
 	regValue, err := p.regAlloc.Alloc()
 	if err != nil {
@@ -921,8 +1001,12 @@ func (p *ProgramBuilder) NewPtrVar() *Variable {
 	return variable
 }
 
-func (p *ProgramBuilder) NewVarReg(kind VariableType, reg asm.Register) *Variable {
-	return &Variable{Type: kind, addr: math.MaxInt16, pb: p, reg: reg}
+func (p *ProgramBuilder) newVarReg(kind VariableType, reg asm.Register) *Variable {
+	variable := newVariable(kind, math.MaxInt16, reg, p)
+
+	p.variables = append(p.variables, variable)
+
+	return variable
 }
 
 func (p *ProgramBuilder) NewVar(kind VariableType) *Variable {
@@ -935,7 +1019,7 @@ func (p *ProgramBuilder) NewVar(kind VariableType) *Variable {
 
 	p.setError("variable type unknown")
 
-	return &Variable{}
+	return newVariable(Int8Type, math.MaxInt16, RNULL, p)
 }
 
 func (p *ProgramBuilder) NewVarV(value interface{}) *Variable {
@@ -964,9 +1048,14 @@ func (p *ProgramBuilder) NewVarV(value interface{}) *Variable {
 
 	p.setError("variable type unknown")
 
-	return &Variable{}
+	return newVariable(Int8Type, math.MaxInt16, RNULL, p)
 }
 
 func (p *ProgramBuilder) FreeVar(v *Variable) {
-	// TODO(safchain) think of ptr
+	p.stackFree(v.addr)
+	p.regAlloc.Free(v.reg)
+
+	slices.DeleteFunc(p.variables, func(o *Variable) bool {
+		return v == o
+	})
 }

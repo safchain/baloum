@@ -25,6 +25,7 @@ import (
 	"unsafe"
 
 	"github.com/cilium/ebpf"
+	"github.com/cilium/ebpf/asm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -143,6 +144,35 @@ func TestBuilderRegAlloc(t *testing.T) {
 	assert.Equal(t, int16(math.MaxInt16), v5.addr)
 	assert.Equal(t, RNULL, v1.reg)
 	assert.NotEqual(t, int16(math.MaxInt16), v1.addr)
+}
+
+func TestDeadCodeElimination(t *testing.T) {
+	t.Run("test-1", func(t *testing.T) {
+		var insts asm.Instructions
+
+		insts = append(insts,
+			asm.Return(),
+			asm.Mov.Imm(asm.R1, 1),
+		)
+		assert.Equal(t, 2, len(insts))
+
+		cleaned := deadCodeElimination(insts)
+		assert.Equal(t, 1, len(cleaned))
+	})
+
+	t.Run("test-2", func(t *testing.T) {
+		var insts asm.Instructions
+
+		insts = append(insts,
+			asm.Ja.Label("jmp1"),
+			asm.Return(),
+			asm.Mov.Imm(asm.R1, 1).WithSymbol("jmp1"),
+		)
+		assert.Equal(t, 3, len(insts))
+
+		cleaned := deadCodeElimination(insts)
+		assert.Equal(t, 3, len(cleaned))
+	})
 }
 
 type Dentry struct {
@@ -1300,13 +1330,15 @@ func TestBuilderRawStrCmp(t *testing.T) {
 		copy(text, "abcdef")
 
 		for i, c := range text {
+			v := valuePtr.Deref(UInt8Type, i)
 			builder.IfThenElse(
-				builder.NotEqual(valuePtr.Deref(UInt8Type, i), uint8(c)),
+				builder.NotEqual(v, uint8(c)),
 				func() {
 					builder.Return(0)
 				},
 				nil,
 			)
+			builder.FreeVar(v)
 		}
 		builder.Printk("ok")
 
