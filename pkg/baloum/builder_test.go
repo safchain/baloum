@@ -1480,12 +1480,14 @@ func TestBuilderTailCall(t *testing.T) {
 			progIdx uint32 = 1
 		)
 
+		ctx := progEntryBuilder.NewCtxVar()
+
 		value := progEntryBuilder.NewVarV(uint32(1))
 		ret := progEntryBuilder.NewVarV(int32(-1))
 
 		progEntryBuilder.IfThenElse(progEntryBuilder.Equal(value, uint32(1)),
 			func() {
-				progEntryBuilder.TailCall("map_prog", progIdx, ret)
+				progEntryBuilder.TailCall(ctx, "map_prog", progIdx, ret)
 			},
 			nil,
 		)
@@ -1530,12 +1532,14 @@ func TestBuilderTailCall(t *testing.T) {
 			progIdx uint32 = 1
 		)
 
+		ctx := progEntryBuilder.NewCtxVar()
+
 		value := progEntryBuilder.NewVarV(progIdx)
 		ret := progEntryBuilder.NewVarV(int32(-1))
 
 		progEntryBuilder.IfThenElse(progEntryBuilder.Equal(value, uint32(1)),
 			func() {
-				progEntryBuilder.TailCall("map_prog", value, ret)
+				progEntryBuilder.TailCall(ctx, "map_prog", value, ret)
 			},
 			nil,
 		)

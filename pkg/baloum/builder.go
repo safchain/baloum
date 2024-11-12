@@ -242,6 +242,10 @@ func (vr *Variable) load() asm.Register {
 
 func (vr *Variable) loadReg(reg asm.Register) {
 	if vr.InReg() {
+		if vr.reg == reg {
+			return
+		}
+
 		vr.pb.insts = append(vr.pb.insts,
 			asm.Mov.Reg(reg, vr.reg),
 		)
@@ -375,7 +379,16 @@ func deadCodeElimination(insts asm.Instructions) asm.Instructions {
 	return cleaned
 }
 
-func (p *ProgramBuilder) swapReg(reg asm.Register) {
+func (p *ProgramBuilder) varByReg(reg asm.Register) *Variable {
+	for _, v := range p.variables {
+		if v.reg == reg {
+			return v
+		}
+	}
+	return nil
+}
+
+func (p *ProgramBuilder) invalidateReg(reg asm.Register) {
 	for _, v := range p.variables {
 		if v.InReg() && v.reg == reg {
 			targetReg, err := p.regAlloc.Alloc()
@@ -398,7 +411,7 @@ func (p *ProgramBuilder) swapReg(reg asm.Register) {
 
 func (p *ProgramBuilder) CallFn(fn asm.BuiltinFunc) asm.Instructions {
 	// invalidate R0
-	p.swapReg(asm.R0)
+	p.invalidateReg(asm.R0)
 
 	return asm.Instructions{
 		fn.Call(),
@@ -417,8 +430,6 @@ func (p *ProgramBuilder) Commit() error {
 	p.insts = deadCodeElimination(p.insts)
 
 	p.program.insts = append(p.program.insts, p.insts...)
-
-	p.program.PrintInstructions()
 
 	return p.err
 }
@@ -523,18 +534,18 @@ func (p *ProgramBuilder) stackBytes(bytes []byte) (int16, asm.Instructions) {
 		switch {
 		case value <= math.MaxUint16:
 			instructions = append(instructions,
-				asm.Mov.Imm(asm.R1, int32(value)),
-				asm.StoreMem(asm.RFP, ptr, asm.R1, asm.Half),
+				asm.Mov.Imm(asm.R2, int32(value)),
+				asm.StoreMem(asm.RFP, ptr, asm.R2, asm.Half),
 			)
 		case value <= math.MaxUint32:
 			instructions = append(instructions,
-				asm.Mov.Imm(asm.R1, int32(value)),
-				asm.StoreMem(asm.RFP, ptr, asm.R1, asm.Word),
+				asm.Mov.Imm(asm.R2, int32(value)),
+				asm.StoreMem(asm.RFP, ptr, asm.R2, asm.Word),
 			)
 		default:
 			instructions = append(instructions,
-				asm.LoadImm(asm.R1, value, asm.DWord),
-				asm.StoreMem(asm.RFP, ptr, asm.R1, asm.DWord),
+				asm.LoadImm(asm.R2, value, asm.DWord),
+				asm.StoreMem(asm.RFP, ptr, asm.R2, asm.DWord),
 			)
 		}
 		ptr += 8
@@ -559,6 +570,9 @@ func (p *ProgramBuilder) Printk(format string, args ...interface{}) {
 	// format
 	addr, insts := p.stackBytes([]byte(format))
 	p.insts = append(p.insts, insts...)
+
+	// be sure that R1 is not used by a ctx variable
+	p.invalidateReg(asm.R1)
 
 	p.insts = append(p.insts,
 		asm.Mov.Reg(asm.R1, asm.RFP),
@@ -822,7 +836,14 @@ func (p *ProgramBuilder) cmp(var1 *Variable, var2 interface{}, cmpOp asm.JumpOp)
 	}
 }
 
-func (p *ProgramBuilder) TailCall(mapName string, value interface{}, ret *Variable) {
+func (p *ProgramBuilder) tailCall(ctx *Variable, mapName string, fd int, value interface{}, ret *Variable) {
+	// be sure that R1 is not used by a ctx variable
+	if v := p.varByReg(asm.R1); v != nil && v != ctx {
+		p.invalidateReg(asm.R1)
+	}
+
+	ctx.loadReg(asm.R1)
+
 	switch v := value.(type) {
 	case *Variable:
 		v.loadReg(asm.R3)
@@ -838,15 +859,26 @@ func (p *ProgramBuilder) TailCall(mapName string, value interface{}, ret *Variab
 	}
 
 	p.insts = append(p.insts,
-		asm.LoadMapPtr(asm.R2, 0).WithReference(mapName),
+		asm.LoadMapPtr(asm.R2, fd).WithReference(mapName),
 	)
 	p.insts = append(p.insts, p.CallFn(asm.FnTailCall)...)
 
 	ret.store(asm.R0)
 }
 
+func (p *ProgramBuilder) TailCallFD(ctx *Variable, fd int, value interface{}, ret *Variable) {
+	p.tailCall(ctx, "", fd, value, ret)
+}
+
+func (p *ProgramBuilder) TailCall(ctx *Variable, mapName string, value interface{}, ret *Variable) {
+	p.tailCall(ctx, mapName, 0, value, ret)
+}
+
 func (p *ProgramBuilder) MapLookup(mapName string, key *Variable, value *Variable) {
 	key.ptrReg(asm.R2)
+
+	// be sure that R1 is not used by a ctx variable
+	p.invalidateReg(asm.R1)
 
 	p.insts = append(p.insts,
 		asm.LoadMapPtr(asm.R1, 0).WithReference(mapName),
@@ -859,6 +891,9 @@ func (p *ProgramBuilder) MapLookup(mapName string, key *Variable, value *Variabl
 func (p *ProgramBuilder) MapLookupFD(fd int, key *Variable, value *Variable) {
 	key.ptrReg(asm.R2)
 
+	// be sure that R1 is not used by a ctx variable
+	p.invalidateReg(asm.R1)
+
 	p.insts = append(p.insts,
 		asm.LoadMapPtr(asm.R1, fd),
 	)
@@ -870,6 +905,9 @@ func (p *ProgramBuilder) MapLookupFD(fd int, key *Variable, value *Variable) {
 func (p *ProgramBuilder) MapUpdate(mapName string, key *Variable, value *Variable, ret *Variable, kind MapUpdateType) {
 	key.ptrReg(asm.R2)
 	value.ptrReg(asm.R3)
+
+	// be sure that R1 is not used by a ctx variable
+	p.invalidateReg(asm.R1)
 
 	p.insts = append(p.insts,
 		asm.Mov.Imm(asm.R4, int32(kind)),
@@ -884,6 +922,9 @@ func (p *ProgramBuilder) MapUpdate(mapName string, key *Variable, value *Variabl
 
 func (p *ProgramBuilder) MapDelete(mapName string, key *Variable, ret *Variable) {
 	key.ptrReg(asm.R2)
+
+	// be sure that R1 is not used by a ctx variable
+	p.invalidateReg(asm.R1)
 
 	p.insts = append(p.insts,
 		asm.LoadMapPtr(asm.R1, 0).WithReference(mapName),
@@ -995,6 +1036,17 @@ func (p *ProgramBuilder) NewPtrVar() *Variable {
 		p.setError(err)
 	}
 	variable.reg = regValue
+
+	p.variables = append(p.variables, variable)
+
+	return variable
+}
+
+func (p *ProgramBuilder) NewCtxVar() *Variable {
+	// be sure that R1 is not used by another ctx variable
+	p.invalidateReg(asm.R1)
+
+	variable := newVariable(PtrType, math.MaxInt16, asm.R1, p)
 
 	p.variables = append(p.variables, variable)
 
