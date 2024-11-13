@@ -429,19 +429,17 @@ func FnTailCallImpl(vm *VM, inst *asm.Instruction) error {
 		return errors.New("value size not supported")
 	}
 
-	if fd == 0 {
-		return errors.New("program not found")
+	if int(fd) >= len(vm.programs) {
+		code := int64(-1)
+		vm.regs[asm.R0] = uint64(code)
+		return nil
 	}
 
-	progIndex := fd - 1
-
-	if progIndex > len(vm.programs) {
-		return errors.New("out of bound")
-	}
-
-	program := vm.programs[progIndex]
+	program := vm.programs[fd]
 	if program.Type != vm.progType {
-		return errors.New("program types differ")
+		code := int64(-1)
+		vm.regs[asm.R0] = uint64(code)
+		return nil
 	}
 
 	vm.regs[asm.R0] = 0

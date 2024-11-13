@@ -983,15 +983,6 @@ func (vm *VM) LoadMaps(names ...string) error {
 	return nil
 }
 
-func (vm *VM) LoadMaps(names ...string) error {
-	for _, name := range names {
-		if err := vm.LoadMap(name); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func (vm *VM) LoadMapsUsedBy(section ...string) error {
 	return vm.maps.LoadMaps(vm.Spec, section...)
 }
