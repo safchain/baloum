@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"regexp"
 	"strings"
 	"time"
@@ -428,6 +429,8 @@ func FnTailCallImpl(vm *VM, inst *asm.Instruction) error {
 	default:
 		return errors.New("value size not supported")
 	}
+
+	fmt.Printf("ICI\n")
 
 	if int(fd) >= len(vm.programs) {
 		code := int64(-1)

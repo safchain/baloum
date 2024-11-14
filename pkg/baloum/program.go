@@ -47,11 +47,9 @@ func (p *Program) PrintInstructions() {
 }
 
 func (p *Program) Prepare(instLimit int) error {
-	if err := p.ResolveReferences(); err != nil {
-		return err
-	}
+	insts := resolveSymbolReferences(p.insts)
 
-	if err := p.VerifyDag(); err != nil {
+	if err := VerifyDag(insts); err != nil {
 		return err
 	}
 
@@ -63,11 +61,11 @@ func (p *Program) Prepare(instLimit int) error {
 }
 
 // VerifyDag super naive Dag verification
-func (p *Program) VerifyDag() error {
+func VerifyDag(insts asm.Instructions) error {
 	var offsets []int
 
-	for i := 0; i < len(p.insts); i++ {
-		inst := p.insts[i]
+	for i := 0; i < len(insts); i++ {
+		inst := insts[i]
 
 		if slices.Contains(offsets, i) {
 			return fmt.Errorf("not a dag, inst #%d: %v", i, inst)
@@ -76,46 +74,6 @@ func (p *Program) VerifyDag() error {
 
 		if inst.OpCode == asm.Ja.Op(asm.ImmSource) {
 			i += int(inst.Offset)
-		}
-	}
-
-	return nil
-}
-
-func (p *Program) ResolveReferences() error {
-	symbols := make(map[string]int)
-
-	for offset, ins := range p.insts {
-		if symbol := ins.Symbol(); symbol != "" {
-			symbols[symbol] = offset
-		}
-	}
-
-	for i, ins := range p.insts {
-		if ref := ins.Reference(); ref != "" {
-			offset, exists := symbols[ref]
-			if exists {
-				var inc int
-
-				// correct with size of instruction size
-				delta := offset - i - 1
-				if delta > 0 {
-					for j := 0; j != delta; j++ {
-						if p.insts[i+j].Size() > 8 {
-							inc++
-						}
-					}
-				} else {
-					for j := 0; j != delta; j-- {
-						if p.insts[i+j].Size() > 8 {
-							inc--
-						}
-					}
-				}
-
-				ins.Offset = int16(delta + inc)
-				p.insts[i] = ins
-			}
 		}
 	}
 
