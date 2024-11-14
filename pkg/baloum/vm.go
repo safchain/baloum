@@ -329,6 +329,51 @@ func (vm *VM) initFncs() {
 	}
 }
 
+func resolveSymbolReferences(insts asm.Instructions) asm.Instructions {
+	var resolved asm.Instructions
+
+	symbols := make(map[string]int)
+
+	for offset, ins := range insts {
+		if symbol := ins.Symbol(); symbol != "" {
+			symbols[symbol] = offset
+		}
+	}
+
+	for i, inst := range insts {
+		// copy
+		resolved = append(resolved, inst)
+
+		if ref := inst.Reference(); ref != "" {
+			offset, exists := symbols[ref]
+			if exists {
+				var inc int
+
+				// correct with size of instruction size
+				delta := offset - i - 1
+				if delta > 0 {
+					for j := 0; j != delta; j++ {
+						if insts[i+j].Size() > 8 {
+							inc++
+						}
+					}
+				} else {
+					for j := 0; j != delta; j-- {
+						if insts[i+j].Size() > 8 {
+							inc--
+						}
+					}
+				}
+
+				inst.Offset = int16(delta + inc)
+				resolved[i] = inst
+			}
+		}
+	}
+
+	return resolved
+}
+
 func normalizeInsts(insts []asm.Instruction) []asm.Instruction {
 	var normInsts []asm.Instruction
 
@@ -344,6 +389,8 @@ func normalizeInsts(insts []asm.Instruction) []asm.Instruction {
 }
 
 func (vm *VM) RunInstructions(ctx Context, insts []asm.Instruction) (int, error) {
+	// prepare the instruction
+	insts = resolveSymbolReferences(insts)
 	insts = normalizeInsts(insts)
 
 	state := vm.saveState()
@@ -892,11 +939,23 @@ func (vm *VM) RunInstructions(ctx Context, insts []asm.Instruction) (int, error)
 	return ErrorCode, errors.New("unexpected error")
 }
 
-func (vm *VM) LoadMap(name string) error {
-	return vm.maps.LoadMap(vm.Spec, name)
+func (vm *VM) LoadMap(name string) (*Map, error) {
+	if err := vm.maps.LoadMap(vm.Spec, name); err != nil {
+		return nil, err
+	}
+	return vm.maps.mapByName[name], nil
 }
 
-func (vm *VM) LoadMaps(section ...string) error {
+func (vm *VM) LoadMaps(names ...string) error {
+	for _, name := range names {
+		if _, err := vm.LoadMap(name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (vm *VM) LoadMapsUsedBy(section ...string) error {
 	return vm.maps.LoadMaps(vm.Spec, section...)
 }
 
@@ -925,6 +984,30 @@ func (vm *VM) loadSection(section string) (*ebpf.ProgramSpec, error) {
 	return program, nil
 }
 
+func (vm *VM) AddColSpec(colSpec *ebpf.CollectionSpec) error {
+	if err := vm.LoadMaps(); err != nil {
+		return err
+	}
+
+	for _, programSpec := range colSpec.Programs {
+		fmt.Printf("PROG: %s\n", programSpec.Name)
+		fmt.Printf("INST: %+v\n", programSpec.Instructions)
+
+		vm.AddProgram(programSpec)
+	}
+
+	return nil
+}
+
+func (vm *VM) Program(name string) (*ebpf.ProgramSpec, uint32) {
+	for i, programSpec := range vm.programs {
+		if programSpec.Name == name {
+			return programSpec, uint32(i)
+		}
+	}
+	return nil, 0
+}
+
 func (vm *VM) AddProgram(program *ebpf.ProgramSpec) uint32 {
 	// FD is the index in the map of programs
 	fd := uint32(len(vm.programs))
@@ -943,14 +1026,18 @@ func (vm *VM) LoadProgram(section string) (uint32, error) {
 	return fd, nil
 }
 
-func (vm *VM) RunProgram(ctx Context, section string) (int, error) {
+func (vm *VM) RunProgram(ctx Context, section string, programType ...ebpf.ProgramType) (int, error) {
 	program, err := vm.loadSection(section)
 	if err != nil {
 		return ErrorCode, err
 	}
 
 	// keep current type and context
-	vm.progType = program.Type
+	if len(programType) > 0 {
+		vm.progType = programType[0]
+	} else {
+		vm.progType = program.Type
+	}
 	vm.ctx = ctx
 
 	return vm.RunInstructions(ctx, program.Instructions)
