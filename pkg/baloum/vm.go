@@ -1012,6 +1012,21 @@ func (vm *VM) loadSection(section string) (*ebpf.ProgramSpec, error) {
 	return program, nil
 }
 
+func (vm *VM) AddColSpec(colSpec *ebpf.CollectionSpec) error {
+	if err := vm.LoadMaps(); err != nil {
+		return err
+	}
+
+	for _, programSpec := range colSpec.Programs {
+		fmt.Printf("PROG: %s\n", programSpec.Name)
+		fmt.Printf("INST: %+v\n", programSpec.Instructions)
+
+		vm.AddProgram(programSpec)
+	}
+
+	return nil
+}
+
 func (vm *VM) Program(name string) (*ebpf.ProgramSpec, uint32) {
 	for i, programSpec := range vm.programs {
 		if programSpec.Name == name {
