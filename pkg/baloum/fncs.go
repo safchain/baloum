@@ -41,6 +41,9 @@ const (
 
 	// static int (*baloum_sleep)(__u64 ns) = (void *)0xfffb;
 	FnSleep = asm.BuiltinFunc(0xfffb)
+
+	// static int (*baloum_memcpy)(const void *b1, const void *b2, __u32 size) = (void *)0xfffa;
+	FnMemCpy = asm.BuiltinFunc(0xfffa)
 )
 
 var (
@@ -51,6 +54,7 @@ var (
 		FnStrCmp: FnStrCmpImpl,
 		FnMemCmp: FnMemCmpImpl,
 		FnSleep:  FnSleepImpl,
+		FnMemCpy: FnMemCpyImpl,
 
 		// bpf helpers
 		asm.FnTracePrintk:       FnTracePrintkImpl,
@@ -145,6 +149,20 @@ func FnMemCmpImpl(vm *VM, inst *asm.Instruction) error {
 	vm.regs[asm.R0] = uint64(ret)
 
 	return nil
+}
+
+func FnMemCpyImpl(vm *VM, inst *asm.Instruction) error {
+	code := ErrorCode
+	vm.regs[asm.R0] = uint64(code)
+
+	size := vm.regs[asm.R3]
+
+	srcBytes, err := vm.getBytes(vm.regs[asm.R2], size)
+	if err != nil {
+		return err
+	}
+
+	return vm.setBytes(vm.regs[asm.R1], srcBytes, size)
 }
 
 var (
@@ -374,7 +392,10 @@ func FnGetSmpProcessorIdImpl(vm *VM, inst *asm.Instruction) error {
 }
 
 func FnTailCallImpl(vm *VM, inst *asm.Instruction) error {
-	vm.regs[asm.R0] = 0
+	if vm.tailCails >= 32 {
+		return errors.New("maximum tail calls reach")
+	}
+	vm.tailCails++
 
 	_map := vm.maps.GetMapById(int(vm.regs[asm.R2]))
 	if _map == nil {
@@ -407,14 +428,22 @@ func FnTailCallImpl(vm *VM, inst *asm.Instruction) error {
 		return errors.New("value size not supported")
 	}
 
-	if int(fd) >= len(vm.programs) {
+	if fd == 0 {
+		return errors.New("program not found")
+	}
+
+	progIndex := fd - 1
+
+	if progIndex > len(vm.programs) {
 		return errors.New("out of bound")
 	}
 
-	program := vm.programs[fd]
+	program := vm.programs[progIndex]
 	if program.Type != vm.progType {
 		return errors.New("program types differ")
 	}
+
+	vm.regs[asm.R0] = 0
 
 	ret, err := vm.RunInstructions(vm.ctx, program.Instructions)
 	vm.regs[asm.R0] = uint64(ret)

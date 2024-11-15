@@ -41,17 +41,18 @@ type vmState struct {
 type program []asm.Instruction
 
 type VM struct {
-	Spec     *ebpf.CollectionSpec
-	Opts     Opts
-	stack    []byte
-	heap     *Heap
-	regs     Regs
-	fncs     map[asm.BuiltinFunc]func(*VM, *asm.Instruction) error
-	strs     map[string]uint64
-	maps     *MapCollection
-	programs []*ebpf.ProgramSpec
-	progType ebpf.ProgramType
-	ctx      Context
+	Spec      *ebpf.CollectionSpec
+	Opts      Opts
+	stack     []byte
+	heap      *Heap
+	regs      Regs
+	fncs      map[asm.BuiltinFunc]func(*VM, *asm.Instruction) error
+	strs      map[string]uint64
+	maps      *MapCollection
+	programs  []*ebpf.ProgramSpec
+	progType  ebpf.ProgramType
+	ctx       Context
+	tailCails int
 }
 
 func NewVM(spec *ebpf.CollectionSpec, opts Opts) *VM {
@@ -206,6 +207,21 @@ func (vm *VM) setUint8(addr uint64, value uint8) error {
 	}
 
 	bytes[0] = value
+
+	return nil
+}
+
+func (vm *VM) setBytes(addr uint64, value []byte, size uint64) error {
+	bytes, err := vm.getBytes(addr, size)
+	if err != nil {
+		return err
+	}
+
+	if int(size) > len(bytes) {
+		return errors.New("not enough space")
+	}
+
+	copy(bytes, value[:size])
 
 	return nil
 }
@@ -984,21 +1000,6 @@ func (vm *VM) loadSection(section string) (*ebpf.ProgramSpec, error) {
 	return program, nil
 }
 
-func (vm *VM) AddColSpec(colSpec *ebpf.CollectionSpec) error {
-	if err := vm.LoadMaps(); err != nil {
-		return err
-	}
-
-	for _, programSpec := range colSpec.Programs {
-		fmt.Printf("PROG: %s\n", programSpec.Name)
-		fmt.Printf("INST: %+v\n", programSpec.Instructions)
-
-		vm.AddProgram(programSpec)
-	}
-
-	return nil
-}
-
 func (vm *VM) Program(name string) (*ebpf.ProgramSpec, uint32) {
 	for i, programSpec := range vm.programs {
 		if programSpec.Name == name {
@@ -1009,8 +1010,8 @@ func (vm *VM) Program(name string) (*ebpf.ProgramSpec, uint32) {
 }
 
 func (vm *VM) AddProgram(program *ebpf.ProgramSpec) uint32 {
-	// FD is the index in the map of programs
-	fd := uint32(len(vm.programs))
+	// FD is the index in the map of programs + 1
+	fd := uint32(len(vm.programs)) + 1
 	vm.programs = append(vm.programs, program)
 
 	return fd

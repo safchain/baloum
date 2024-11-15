@@ -51,7 +51,7 @@ func TestTailCall(t *testing.T) {
 	}
 
 	vm := NewVM(spec, Opts{Fncs: fncs, Logger: suggar})
-	err = vm.LoadMaps("test/tail_call")
+	err = vm.LoadMapsUsedBy("test/tail_call")
 	if err != nil {
 		log.Fatal(err)
 	}
