@@ -51,7 +51,7 @@ func TestTailCall(t *testing.T) {
 	}
 
 	vm := NewVM(spec, Opts{Fncs: fncs, Logger: suggar})
-	err = vm.LoadMaps("test/tail_call")
+	err = vm.LoadMapsUsedBy("test/tail_call")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestTailCall(t *testing.T) {
 
 	var ctx StdContext
 	code, err := vm.RunProgram(&ctx, "test/tail_call")
-	assert.Equal(t, 72, code)
+	assert.Equal(t, int64(72), code)
 	assert.Nil(t, err)
 
 	data, err := vm.Map("data").Lookup(uint64(0))

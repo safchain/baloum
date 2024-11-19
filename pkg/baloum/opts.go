@@ -20,6 +20,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/asm"
 )
 
@@ -36,12 +37,13 @@ type Fncs struct {
 }
 
 type Opts struct {
-	StackSize int
-	Fncs      Fncs
-	RawFncs   map[asm.BuiltinFunc]func(*VM, *asm.Instruction) error
-	Logger    Logger
-	CPUs      int
-	Observer  Observer
+	StackSize   int
+	Fncs        Fncs
+	RawFncs     map[asm.BuiltinFunc]func(*VM, *asm.Instruction) error
+	Logger      Logger
+	CPUs        int
+	Observer    Observer
+	ProgramType ebpf.ProgramType
 }
 
 func defaultKtimeGetNS(vm *VM) (uint64, error) {
