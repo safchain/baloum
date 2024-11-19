@@ -27,7 +27,7 @@ import (
 )
 
 const (
-	ErrorCode = int(-1)
+	ErrorCode = int64(-1)
 
 	// bitmasks
 	fetchBit = 0x01
@@ -357,7 +357,6 @@ func resolveSymbolReferences(insts asm.Instructions) asm.Instructions {
 	}
 
 	for i, inst := range insts {
-		// copy
 		resolved = append(resolved, inst)
 
 		if ref := inst.Reference(); ref != "" {
@@ -404,7 +403,7 @@ func normalizeInsts(insts []asm.Instruction) []asm.Instruction {
 	return normInsts
 }
 
-func (vm *VM) RunInstructions(ctx Context, insts []asm.Instruction) (int, error) {
+func (vm *VM) RunInstructions(ctx Context, insts []asm.Instruction) (int64, error) {
 	// prepare the instruction
 	insts = resolveSymbolReferences(insts)
 	insts = normalizeInsts(insts)
@@ -514,9 +513,9 @@ func (vm *VM) RunInstructions(ctx Context, insts []asm.Instruction) (int, error)
 		case asm.ArSh.Op(asm.RegSource):
 			vm.regs[inst.Dst] = uint64(int64(vm.regs[inst.Dst]) >> uint64(vm.regs[inst.Src]%64))
 		case asm.ArSh.Op32(asm.ImmSource):
-			vm.regs[inst.Dst] = uint64(int32(vm.regs[inst.Dst]) >> uint32(uint32(inst.Constant)%32))
+			vm.regs[inst.Dst] = uint64(uint32(int32(vm.regs[inst.Dst]) >> (uint32(inst.Constant) % 32)))
 		case asm.ArSh.Op32(asm.RegSource):
-			vm.regs[inst.Dst] = uint64(int32(vm.regs[inst.Dst]) >> uint32(vm.regs[inst.Src]%32))
+			vm.regs[inst.Dst] = uint64(uint32(int32(vm.regs[inst.Dst]) >> (vm.regs[inst.Src] % 32)))
 
 		//
 		case asm.StoreMemOp(asm.DWord):
@@ -900,7 +899,7 @@ func (vm *VM) RunInstructions(ctx Context, insts []asm.Instruction) (int, error)
 
 					// if tail call endup here
 					if builtin == asm.FnTailCall {
-						return int(int32(vm.regs[asm.R0])), nil
+						return int64(int32(vm.regs[asm.R0])), nil
 					}
 				} else {
 					return ErrorCode, fmt.Errorf("unknown function: `%v`", inst.Src)
@@ -920,7 +919,7 @@ func (vm *VM) RunInstructions(ctx Context, insts []asm.Instruction) (int, error)
 
 		//
 		case asm.Exit.Op(asm.ImmSource):
-			return int(int32(vm.regs[asm.R0])), nil
+			return int64(vm.regs[asm.R0]), nil
 		default:
 			if opcode.Class().IsALU() && opcode.ALUOp() == asm.Swap {
 				buff := make([]byte, 8)
@@ -948,7 +947,6 @@ func (vm *VM) RunInstructions(ctx Context, insts []asm.Instruction) (int, error)
 			} else {
 				return ErrorCode, fmt.Errorf("unknown op: %v", inst)
 			}
-
 		}
 	}
 
@@ -1027,7 +1025,7 @@ func (vm *VM) LoadProgram(section string) (uint32, error) {
 	return fd, nil
 }
 
-func (vm *VM) RunProgram(ctx Context, section string, programType ...ebpf.ProgramType) (int, error) {
+func (vm *VM) RunProgram(ctx Context, section string, programType ...ebpf.ProgramType) (int64, error) {
 	program, err := vm.loadSection(section)
 	if err != nil {
 		return ErrorCode, err
