@@ -107,7 +107,7 @@ func (vm *VM) getMem(addr uint64) ([]byte, uint64, error) {
 	return vm.heap.GetMem(addr)
 }
 
-func (vm *VM) getBytes(addr uint64, size uint64) ([]byte, error) {
+func (vm *VM) GetBytes(addr uint64, size uint64) ([]byte, error) {
 	bytes, addr, err := vm.getMem(addr)
 	if err != nil {
 		return nil, err
@@ -124,8 +124,8 @@ func (vm *VM) getBytes(addr uint64, size uint64) ([]byte, error) {
 	return bytes[addr : addr+size], nil
 }
 
-func (vm *VM) getUint64(addr uint64) (uint64, error) {
-	bytes, err := vm.getBytes(addr, 8)
+func (vm *VM) GetUint64(addr uint64) (uint64, error) {
+	bytes, err := vm.GetBytes(addr, 8)
 	if err != nil {
 		return 0, err
 	}
@@ -133,8 +133,8 @@ func (vm *VM) getUint64(addr uint64) (uint64, error) {
 	return ByteOrder.Uint64(bytes), nil
 }
 
-func (vm *VM) getUint32(addr uint64) (uint32, error) {
-	bytes, err := vm.getBytes(addr, 4)
+func (vm *VM) GetUint32(addr uint64) (uint32, error) {
+	bytes, err := vm.GetBytes(addr, 4)
 	if err != nil {
 		return 0, err
 	}
@@ -142,8 +142,8 @@ func (vm *VM) getUint32(addr uint64) (uint32, error) {
 	return ByteOrder.Uint32(bytes), nil
 }
 
-func (vm *VM) getUint16(addr uint64) (uint16, error) {
-	bytes, err := vm.getBytes(addr, 2)
+func (vm *VM) GetUint16(addr uint64) (uint16, error) {
+	bytes, err := vm.GetBytes(addr, 2)
 	if err != nil {
 		return 0, err
 	}
@@ -151,8 +151,8 @@ func (vm *VM) getUint16(addr uint64) (uint16, error) {
 	return ByteOrder.Uint16(bytes), nil
 }
 
-func (vm *VM) getUint8(addr uint64) (uint8, error) {
-	bytes, err := vm.getBytes(addr, 1)
+func (vm *VM) GetUint8(addr uint64) (uint8, error) {
+	bytes, err := vm.GetBytes(addr, 1)
 	if err != nil {
 		return 0, err
 	}
@@ -160,7 +160,7 @@ func (vm *VM) getUint8(addr uint64) (uint8, error) {
 	return uint8(bytes[0]), nil
 }
 
-func (vm *VM) getString(addr uint64) (string, error) {
+func (vm *VM) GetString(addr uint64) (string, error) {
 	data, addr, err := vm.getMem(addr)
 	if err != nil {
 		return "", err
@@ -169,8 +169,8 @@ func (vm *VM) getString(addr uint64) (string, error) {
 	return Bytes2String(data[addr:]), nil
 }
 
-func (vm *VM) setUint64(addr uint64, value uint64) error {
-	bytes, err := vm.getBytes(addr, 8)
+func (vm *VM) SetUint64(addr uint64, value uint64) error {
+	bytes, err := vm.GetBytes(addr, 8)
 	if err != nil {
 		return err
 	}
@@ -179,8 +179,8 @@ func (vm *VM) setUint64(addr uint64, value uint64) error {
 	return nil
 }
 
-func (vm *VM) setUint32(addr uint64, value uint32) error {
-	bytes, err := vm.getBytes(addr, 4)
+func (vm *VM) SetUint32(addr uint64, value uint32) error {
+	bytes, err := vm.GetBytes(addr, 4)
 	if err != nil {
 		return err
 	}
@@ -189,8 +189,8 @@ func (vm *VM) setUint32(addr uint64, value uint32) error {
 	return nil
 }
 
-func (vm *VM) setUint16(addr uint64, value uint16) error {
-	bytes, err := vm.getBytes(addr, 2)
+func (vm *VM) SetUint16(addr uint64, value uint16) error {
+	bytes, err := vm.GetBytes(addr, 2)
 	if err != nil {
 		return err
 	}
@@ -200,8 +200,8 @@ func (vm *VM) setUint16(addr uint64, value uint16) error {
 	return nil
 }
 
-func (vm *VM) setUint8(addr uint64, value uint8) error {
-	bytes, err := vm.getBytes(addr, 1)
+func (vm *VM) SetUint8(addr uint64, value uint8) error {
+	bytes, err := vm.GetBytes(addr, 1)
 	if err != nil {
 		return err
 	}
@@ -211,8 +211,8 @@ func (vm *VM) setUint8(addr uint64, value uint8) error {
 	return nil
 }
 
-func (vm *VM) setBytes(addr uint64, value []byte, size uint64) error {
-	bytes, err := vm.getBytes(addr, size)
+func (vm *VM) SetBytes(addr uint64, value []byte, size uint64) error {
+	bytes, err := vm.GetBytes(addr, size)
 	if err != nil {
 		return err
 	}
@@ -227,7 +227,7 @@ func (vm *VM) setBytes(addr uint64, value []byte, size uint64) error {
 }
 
 func (vm *VM) atomicUint64(addr uint64, inc uint64, imm int64) (uint64, bool, error) {
-	value, err := vm.getUint64(addr)
+	value, err := vm.GetUint64(addr)
 	if err != nil {
 		return 0, false, err
 	}
@@ -245,7 +245,7 @@ func (vm *VM) atomicUint64(addr uint64, inc uint64, imm int64) (uint64, bool, er
 		res = inc
 	case 0xf0: // CMPXCHG
 		if value == vm.regs[asm.R0] {
-			if err := vm.setUint64(addr, inc); err != nil {
+			if err := vm.SetUint64(addr, inc); err != nil {
 				return 0, false, err
 			}
 		}
@@ -253,11 +253,11 @@ func (vm *VM) atomicUint64(addr uint64, inc uint64, imm int64) (uint64, bool, er
 	default:
 		return 0, false, fmt.Errorf("unknown atomic operand: %d", imm)
 	}
-	return value, false, vm.setUint64(addr, res)
+	return value, false, vm.SetUint64(addr, res)
 }
 
 func (vm *VM) atomicUint32(addr uint64, inc uint32, imm int64) (uint32, bool, error) {
-	value, err := vm.getUint32(addr)
+	value, err := vm.GetUint32(addr)
 	if err != nil {
 		return 0, false, err
 	}
@@ -275,7 +275,7 @@ func (vm *VM) atomicUint32(addr uint64, inc uint32, imm int64) (uint32, bool, er
 		res = inc
 	case 0xf0: // CMPXCHG
 		if value == uint32(vm.regs[asm.R0]) {
-			if err := vm.setUint32(addr, inc); err != nil {
+			if err := vm.SetUint32(addr, inc); err != nil {
 				return 0, false, err
 			}
 		}
@@ -283,7 +283,7 @@ func (vm *VM) atomicUint32(addr uint64, inc uint32, imm int64) (uint32, bool, er
 	default:
 		return 0, false, fmt.Errorf("unknown atomic operand: %d", imm)
 	}
-	return value, false, vm.setUint32(addr, res)
+	return value, false, vm.SetUint32(addr, res)
 }
 
 func isStrSection(name string) bool {
@@ -403,6 +403,21 @@ func normalizeInsts(insts []asm.Instruction) []asm.Instruction {
 	return normInsts
 }
 
+// Regs returns vm registers
+func (vm *VM) Regs() Regs {
+	return vm.regs
+}
+
+// Stack returns the stack
+func (vm *VM) Stack() []byte {
+	return vm.stack
+}
+
+// GetMapByName returns the map
+func (vm *VM) GetMapByName(name string) *Map {
+	return vm.maps.GetMapByName(name)
+}
+
 func (vm *VM) RunInstructions(ctx Context, insts []asm.Instruction) (int64, error) {
 	// prepare the instruction
 	insts = resolveSymbolReferences(insts)
@@ -435,28 +450,28 @@ func (vm *VM) RunInstructions(ctx Context, insts []asm.Instruction) (int64, erro
 		//
 		case asm.LoadMemOp(asm.DWord):
 			srcAddr := vm.regs[inst.Src] + uint64(inst.Offset)
-			value, err := vm.getUint64(srcAddr)
+			value, err := vm.GetUint64(srcAddr)
 			if err != nil {
 				return ErrorCode, err
 			}
 			vm.regs[inst.Dst] = value
 		case asm.LoadMemOp(asm.Word):
 			srcAddr := vm.regs[inst.Src] + uint64(inst.Offset)
-			value, err := vm.getUint32(srcAddr)
+			value, err := vm.GetUint32(srcAddr)
 			if err != nil {
 				return ErrorCode, err
 			}
 			vm.regs[inst.Dst] = uint64(value)
 		case asm.LoadMemOp(asm.Half):
 			srcAddr := vm.regs[inst.Src] + uint64(inst.Offset)
-			value, err := vm.getUint16(srcAddr)
+			value, err := vm.GetUint16(srcAddr)
 			if err != nil {
 				return ErrorCode, err
 			}
 			vm.regs[inst.Dst] = uint64(value)
 		case asm.LoadMemOp(asm.Byte):
 			srcAddr := vm.regs[inst.Src] + uint64(inst.Offset)
-			value, err := vm.getUint8(srcAddr)
+			value, err := vm.GetUint8(srcAddr)
 			if err != nil {
 				return ErrorCode, err
 			}
@@ -520,43 +535,43 @@ func (vm *VM) RunInstructions(ctx Context, insts []asm.Instruction) (int64, erro
 		//
 		case asm.StoreMemOp(asm.DWord):
 			dstAddr := vm.regs[inst.Dst] + uint64(inst.Offset)
-			if err := vm.setUint64(dstAddr, vm.regs[inst.Src]); err != nil {
+			if err := vm.SetUint64(dstAddr, vm.regs[inst.Src]); err != nil {
 				return ErrorCode, err
 			}
 		case asm.StoreMemOp(asm.Word):
 			dstAddr := vm.regs[inst.Dst] + uint64(inst.Offset)
-			if err := vm.setUint32(dstAddr, uint32(vm.regs[inst.Src])); err != nil {
+			if err := vm.SetUint32(dstAddr, uint32(vm.regs[inst.Src])); err != nil {
 				return ErrorCode, err
 			}
 		case asm.StoreMemOp(asm.Half):
 			dstAddr := vm.regs[inst.Dst] + uint64(inst.Offset)
-			if err := vm.setUint16(dstAddr, uint16(vm.regs[inst.Src])); err != nil {
+			if err := vm.SetUint16(dstAddr, uint16(vm.regs[inst.Src])); err != nil {
 				return ErrorCode, err
 			}
 		case asm.StoreMemOp(asm.Byte):
 			dstAddr := vm.regs[inst.Dst] + uint64(inst.Offset)
-			if err := vm.setUint8(dstAddr, uint8(vm.regs[inst.Src])); err != nil {
+			if err := vm.SetUint8(dstAddr, uint8(vm.regs[inst.Src])); err != nil {
 				return ErrorCode, err
 			}
 
 		case asm.StoreImmOp(asm.DWord):
 			dstAddr := vm.regs[inst.Dst] + uint64(inst.Offset)
-			if err := vm.setUint64(dstAddr, uint64(inst.Constant)); err != nil {
+			if err := vm.SetUint64(dstAddr, uint64(inst.Constant)); err != nil {
 				return ErrorCode, err
 			}
 		case asm.StoreImmOp(asm.Word):
 			dstAddr := vm.regs[inst.Dst] + uint64(inst.Offset)
-			if err := vm.setUint32(dstAddr, uint32(inst.Constant)); err != nil {
+			if err := vm.SetUint32(dstAddr, uint32(inst.Constant)); err != nil {
 				return ErrorCode, err
 			}
 		case asm.StoreImmOp(asm.Half):
 			dstAddr := vm.regs[inst.Dst] + uint64(inst.Offset)
-			if err := vm.setUint16(dstAddr, uint16(inst.Constant)); err != nil {
+			if err := vm.SetUint16(dstAddr, uint16(inst.Constant)); err != nil {
 				return ErrorCode, err
 			}
 		case asm.StoreImmOp(asm.Byte):
 			dstAddr := vm.regs[inst.Dst] + uint64(inst.Offset)
-			if err := vm.setUint8(dstAddr, uint8(inst.Constant)); err != nil {
+			if err := vm.SetUint8(dstAddr, uint8(inst.Constant)); err != nil {
 				return ErrorCode, err
 			}
 

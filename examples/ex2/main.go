@@ -22,6 +22,7 @@ import (
 
 	"github.com/cilium/ebpf"
 	"github.com/safchain/baloum/pkg/baloum"
+	"github.com/safchain/baloum/pkg/baloum/debugger"
 	"go.uber.org/zap"
 )
 
@@ -48,7 +49,7 @@ func main() {
 		},
 	}
 
-	debugger := baloum.NewDebugger(true, nil)
+	debugger := debugger.NewDebugger(true, nil)
 	defer debugger.Close()
 
 	vm := baloum.NewVM(spec, baloum.Opts{Fncs: fncs, Observer: debugger})

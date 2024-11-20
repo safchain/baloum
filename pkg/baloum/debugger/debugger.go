@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package baloum
+package debugger
 
 import (
 	"fmt"
@@ -24,6 +24,7 @@ import (
 
 	"github.com/cilium/ebpf/asm"
 	"github.com/peterh/liner"
+	"github.com/safchain/baloum/pkg/baloum"
 )
 
 type DebugCommand string
@@ -64,8 +65,8 @@ func NewDebugger(enabled bool, variableReaders map[string]VariableReader) *Debug
 	}
 }
 
-func (d *Debugger) dumpRegister(vm *VM) {
-	for i, v := range vm.regs {
+func (d *Debugger) dumpRegister(vm *baloum.VM) {
+	for i, v := range vm.Regs() {
 		if i > 0 {
 			fmt.Printf(", ")
 		}
@@ -89,17 +90,17 @@ func (d *Debugger) dumpBytes(bytes []byte) {
 	fmt.Println()
 }
 
-func (d *Debugger) dumpStack(vm *VM) {
-	d.dumpBytes(vm.stack)
+func (d *Debugger) dumpStack(vm *baloum.VM) {
+	d.dumpBytes(vm.Stack())
 }
 
-func (d *Debugger) printMap(vm *VM, args ...string) {
+func (d *Debugger) printMap(vm *baloum.VM, args ...string) {
 	if len(args) != 1 {
 		fmt.Fprintf(os.Stderr, "syntax error: pm <mapname>\n")
 		return
 	}
 
-	_map := vm.maps.GetMapByName(args[0])
+	_map := vm.GetMapByName(args[0])
 	if _map == nil {
 		fmt.Fprintf(os.Stderr, "map not found")
 		return
@@ -125,7 +126,7 @@ func (d *Debugger) printMap(vm *VM, args ...string) {
 	}
 }
 
-func (d *Debugger) printVariable(vm *VM, args ...string) {
+func (d *Debugger) printVariable(vm *baloum.VM, args ...string) {
 	if len(args) != 2 {
 		fmt.Fprintf(os.Stderr, "syntax error: pr <varname> <addr|register>\n")
 		return
@@ -140,13 +141,15 @@ func (d *Debugger) printVariable(vm *VM, args ...string) {
 
 	var ptr uint64
 
+	regs := vm.Regs()
+
 	if addr[0] == 'R' || addr[0] == 'r' {
 		reg, err := strconv.Atoi(addr[1:])
-		if err != nil || reg >= len(vm.regs) {
+		if err != nil || reg >= len(regs) {
 			fmt.Fprintf(os.Stderr, "register unknown\n")
 			return
 		}
-		ptr = vm.regs[reg]
+		ptr = regs[reg]
 	} else {
 		value, err := strconv.Atoi(addr)
 		if err != nil {
@@ -156,7 +159,7 @@ func (d *Debugger) printVariable(vm *VM, args ...string) {
 		ptr = uint64(value)
 	}
 
-	bytes, err := vm.getBytes(ptr, reader.Size)
+	bytes, err := vm.GetBytes(ptr, reader.Size)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "address incorrect\n")
 		return
@@ -165,7 +168,7 @@ func (d *Debugger) printVariable(vm *VM, args ...string) {
 	fmt.Printf(">> %v\n", reader.Read(bytes))
 }
 
-func (d *Debugger) printBacktrace(vm *VM) {
+func (d *Debugger) printBacktrace(vm *baloum.VM) {
 	for _, bt := range d.backtrace {
 		fmt.Printf("%d: %v\n", bt.PC, bt.Inst)
 	}
@@ -177,7 +180,7 @@ func (d *Debugger) Close() {
 	}
 }
 
-func (d *Debugger) ObserveInst(vm *VM, pc int, inst *asm.Instruction) {
+func (d *Debugger) ObserveInst(vm *baloum.VM, pc int, inst *asm.Instruction) {
 	d.backtrace = append(d.backtrace, BTInst{PC: pc, Inst: *inst})
 
 	if d.state == nil {

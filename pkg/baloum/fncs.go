@@ -84,7 +84,7 @@ func FnMallocImpl(vm *VM, inst *asm.Instruction) error {
 }
 
 func FnCallImpl(vm *VM, inst *asm.Instruction) error {
-	data, err := vm.getBytes(vm.regs[asm.R1], 0)
+	data, err := vm.GetBytes(vm.regs[asm.R1], 0)
 	if err != nil {
 		return err
 	}
@@ -93,7 +93,7 @@ func FnCallImpl(vm *VM, inst *asm.Instruction) error {
 		return err
 	}
 
-	section, err := vm.getString(vm.regs[asm.R2])
+	section, err := vm.GetString(vm.regs[asm.R2])
 	if err != nil {
 		return err
 	}
@@ -113,12 +113,12 @@ func FnStrCmpImpl(vm *VM, inst *asm.Instruction) error {
 	code := ErrorCode
 	vm.regs[asm.R0] = uint64(code)
 
-	s1, err := vm.getString(vm.regs[asm.R1])
+	s1, err := vm.GetString(vm.regs[asm.R1])
 	if err != nil {
 		return err
 	}
 
-	s2, err := vm.getString(vm.regs[asm.R2])
+	s2, err := vm.GetString(vm.regs[asm.R2])
 	if err != nil {
 		return err
 	}
@@ -135,12 +135,12 @@ func FnMemCmpImpl(vm *VM, inst *asm.Instruction) error {
 
 	size := vm.regs[asm.R3]
 
-	b1, err := vm.getBytes(vm.regs[asm.R1], uint64(size))
+	b1, err := vm.GetBytes(vm.regs[asm.R1], uint64(size))
 	if err != nil {
 		return err
 	}
 
-	b2, err := vm.getBytes(vm.regs[asm.R2], uint64(size))
+	b2, err := vm.GetBytes(vm.regs[asm.R2], uint64(size))
 	if err != nil {
 		return err
 	}
@@ -157,12 +157,12 @@ func FnMemCpyImpl(vm *VM, inst *asm.Instruction) error {
 
 	size := vm.regs[asm.R3]
 
-	srcBytes, err := vm.getBytes(vm.regs[asm.R2], size)
+	srcBytes, err := vm.GetBytes(vm.regs[asm.R2], size)
 	if err != nil {
 		return err
 	}
 
-	return vm.setBytes(vm.regs[asm.R1], srcBytes, size)
+	return vm.SetBytes(vm.regs[asm.R1], srcBytes, size)
 }
 
 var (
@@ -170,7 +170,7 @@ var (
 )
 
 func FnTracePrintkImpl(vm *VM, inst *asm.Instruction) error {
-	format, err := vm.getString(vm.regs[asm.R1])
+	format, err := vm.GetString(vm.regs[asm.R1])
 	if err != nil {
 		return err
 	}
@@ -200,7 +200,7 @@ func FnTracePrintkImpl(vm *VM, inst *asm.Instruction) error {
 
 		var value interface{}
 		if ph == "%s" {
-			value, err = vm.getString(vm.regs[reg])
+			value, err = vm.GetString(vm.regs[reg])
 			if err != nil {
 				return err
 			}
@@ -221,12 +221,12 @@ func FnTracePrintkImpl(vm *VM, inst *asm.Instruction) error {
 func FnProbeReadImpl(vm *VM, inst *asm.Instruction) error {
 	size := vm.regs[asm.R2]
 
-	srcBytes, err := vm.getBytes(vm.regs[asm.R3], size)
+	srcBytes, err := vm.GetBytes(vm.regs[asm.R3], size)
 	if err != nil {
 		return err
 	}
 
-	dstBytes, err := vm.getBytes(vm.regs[asm.R1], size)
+	dstBytes, err := vm.GetBytes(vm.regs[asm.R1], size)
 	if err != nil {
 		return err
 	}
@@ -239,12 +239,12 @@ func FnProbeReadImpl(vm *VM, inst *asm.Instruction) error {
 func FnProbeReadStrImpl(vm *VM, inst *asm.Instruction) error {
 	size := vm.regs[asm.R2]
 
-	src, err := vm.getString(vm.regs[asm.R3])
+	src, err := vm.GetString(vm.regs[asm.R3])
 	if err != nil {
 		return err
 	}
 
-	dstBytes, err := vm.getBytes(vm.regs[asm.R1], size)
+	dstBytes, err := vm.GetBytes(vm.regs[asm.R1], size)
 	if err != nil {
 		return err
 	}
@@ -292,7 +292,7 @@ func FnMapLookupElemImpl(vm *VM, inst *asm.Instruction) error {
 	}
 
 	keyAddr := vm.regs[asm.R2]
-	key, err := vm.getBytes(keyAddr, uint64(_map.KeySize()))
+	key, err := vm.GetBytes(keyAddr, uint64(_map.KeySize()))
 	if err != nil {
 		return err
 	}
@@ -313,13 +313,13 @@ func FnMapUpdateElemImpl(vm *VM, inst *asm.Instruction) error {
 	}
 
 	keyAddr := vm.regs[asm.R2]
-	key, err := vm.getBytes(keyAddr, uint64(_map.KeySize()))
+	key, err := vm.GetBytes(keyAddr, uint64(_map.KeySize()))
 	if err != nil {
 		return err
 	}
 
 	valueAddr := vm.regs[asm.R3]
-	value, err := vm.getBytes(valueAddr, uint64(_map.ValueSize()))
+	value, err := vm.GetBytes(valueAddr, uint64(_map.ValueSize()))
 	if err != nil {
 		return err
 	}
@@ -342,7 +342,7 @@ func FnMapDeleteElemImpl(vm *VM, inst *asm.Instruction) error {
 	}
 
 	keyAddr := vm.regs[asm.R2]
-	key, err := vm.getBytes(keyAddr, uint64(_map.KeySize()))
+	key, err := vm.GetBytes(keyAddr, uint64(_map.KeySize()))
 	if err != nil {
 		return err
 	}
@@ -369,7 +369,7 @@ func FnPerfEventOutputImpl(vm *VM, inst *asm.Instruction) error {
 	size := vm.regs[asm.R5]
 
 	eventAddr := vm.regs[asm.R4]
-	data, err := vm.getBytes(eventAddr, size)
+	data, err := vm.GetBytes(eventAddr, size)
 	if err != nil {
 		return err
 	}
