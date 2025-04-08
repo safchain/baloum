@@ -294,12 +294,12 @@ func isStrSection(name string) bool {
 }
 
 func secStrNameKey(name string, offset uint64) string {
+	name = strings.Replace(name, ".", "", -1)
 	return fmt.Sprintf("%s.%d", name, offset)
 }
 
 func (vm *VM) getStringAddr(name string, offset uint64) (uint64, error) {
 	// normalize
-	name = strings.Replace(name, ".", "", -1)
 	key := secStrNameKey(name, offset)
 
 	addr, exists := vm.strs[key]
@@ -319,7 +319,7 @@ func (vm *VM) initStrs() {
 				for o, c := range content.Value.([]byte) {
 					if c == 0x0 {
 						if str := string(data); len(str) != 0 {
-							key := fmt.Sprintf("%s.%d", m.Name, offset)
+							key := secStrNameKey(m.Name, uint64(offset))
 							vm.strs[key] = vm.heap.AllocWith([]byte(str))
 						}
 
