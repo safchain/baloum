@@ -17,12 +17,17 @@ limitations under the License.
 package baloum
 
 import (
+	"encoding/binary"
 	"errors"
+	"fmt"
+	"math"
+	"runtime/debug"
 )
 
 type MapProgArrayStorage struct {
 	vm         *VM
 	maxEntries uint32
+	valueSize  uint32
 
 	data []uint64
 }
@@ -50,8 +55,7 @@ func (m *MapProgArrayStorage) Update(key []byte, value []byte, kind MapUpdateTyp
 		return false, errors.New("out of bound")
 	}
 
-	m.vm.heap.Free(m.data[idx])
-	m.data[idx] = m.vm.heap.AllocWith(value)
+	m.vm.SetBytes(m.data[idx], value, uint64(m.valueSize))
 
 	return true, nil
 }
@@ -74,13 +78,29 @@ func (m *MapProgArrayStorage) Write(data []byte) error {
 
 func NewMapProgArrayStorage(vm *VM, keySize, valueSize, maxEntries, flags uint32) (MapStorage, error) {
 	data := make([]uint64, maxEntries)
+
+	var value []byte
+
+	switch valueSize {
+	case 4:
+		value = make([]byte, 4)
+		binary.NativeEndian.PutUint32(value, math.MaxUint32)
+	case 8:
+		value = make([]byte, 8)
+		binary.NativeEndian.PutUint64(value, math.MaxUint64)
+	default:
+		debug.PrintStack()
+		return nil, fmt.Errorf("value size not supported: %d", valueSize)
+	}
+
 	for i := range data {
-		data[i] = vm.heap.Alloc(int(valueSize))
+		data[i] = vm.heap.AllocWith(value)
 	}
 
 	return &MapProgArrayStorage{
 		vm:         vm,
 		maxEntries: maxEntries,
+		valueSize:  valueSize,
 		data:       data,
 	}, nil
 }

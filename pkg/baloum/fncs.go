@@ -20,7 +20,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"regexp"
 	"strings"
 	"time"
@@ -410,8 +409,6 @@ func FnTailCallImpl(vm *VM, inst *asm.Instruction) error {
 	switch _map.keySize {
 	case 4:
 		bytes, err = _map.LookupBytes(uint32(vm.regs[asm.R3]))
-	case 8:
-		bytes, err = _map.LookupBytes(uint64(vm.regs[asm.R3]))
 	default:
 		return errors.New("key size not supported")
 	}
@@ -424,13 +421,9 @@ func FnTailCallImpl(vm *VM, inst *asm.Instruction) error {
 	switch _map.valueSize {
 	case 4:
 		fd = int(binary.NativeEndian.Uint32(bytes))
-	case 8:
-		fd = int(binary.NativeEndian.Uint64(bytes))
 	default:
 		return errors.New("value size not supported")
 	}
-
-	fmt.Printf("ICI\n")
 
 	if int(fd) >= len(vm.programs) {
 		code := int64(-1)

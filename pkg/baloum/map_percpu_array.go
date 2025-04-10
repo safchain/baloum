@@ -23,6 +23,7 @@ import (
 type MapPerCPUArrayStorage struct {
 	vm         *VM
 	maxEntries uint32
+	valueSize  uint32
 
 	data map[uint32][]uint64
 }
@@ -81,8 +82,7 @@ func (m *MapPerCPUArrayStorage) Update(key []byte, value []byte, kind MapUpdateT
 		return false, err
 	}
 
-	m.vm.heap.Free(m.data[cpu][idx])
-	m.data[cpu][idx] = m.vm.heap.AllocWith(value)
+	m.vm.SetBytes(m.data[cpu][idx], value, uint64(m.valueSize))
 
 	return true, nil
 }
@@ -117,6 +117,7 @@ func NewMapPerCPUArrayStorage(vm *VM, keySize, valueSize, maxEntries, flags uint
 	return &MapPerCPUArrayStorage{
 		vm:         vm,
 		maxEntries: maxEntries,
+		valueSize:  valueSize,
 		data:       data,
 	}, nil
 }

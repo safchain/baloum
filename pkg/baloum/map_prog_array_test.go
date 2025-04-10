@@ -67,7 +67,7 @@ func TestTailCall(t *testing.T) {
 		log.Fatal(err)
 	}
 
-	if _, err = vm.Map("tail_calls").Update(uint32(0), fd, BPF_ANY); err != nil {
+	if _, err = vm.Map("tail_calls").Update(uint32(1), fd, BPF_ANY); err != nil {
 		log.Fatal(err)
 	}
 

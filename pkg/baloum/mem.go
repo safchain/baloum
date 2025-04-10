@@ -79,8 +79,11 @@ func (h *Heap) Free(addr uint64) {
 }
 
 func (h *Heap) AllocWith(data []byte) uint64 {
+	clone := make([]byte, len(data))
+	copy(clone, data)
+
 	idx := h.idx
-	h.blocks.PushBack(MemBlock{idx: idx, data: data})
+	h.blocks.PushBack(MemBlock{idx: idx, data: clone})
 	h.idx++
 	return blockIdxToAddr(idx)
 }

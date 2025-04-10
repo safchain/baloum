@@ -23,6 +23,7 @@ import (
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
 	"github.com/safchain/baloum/pkg/baloum"
+	"github.com/safchain/baloum/pkg/baloum/debugger"
 	"go.uber.org/zap"
 )
 
@@ -32,7 +33,7 @@ func run(test bool) {
 
 	suggar := logger.Sugar()
 
-	debugger := baloum.NewDebugger(true, nil)
+	debugger := debugger.NewDebugger(true, nil)
 	defer debugger.Close()
 
 	var prog baloum.Program

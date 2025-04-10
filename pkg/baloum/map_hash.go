@@ -23,7 +23,9 @@ import (
 type MapHashStorage struct {
 	vm         *VM
 	maxEntries uint32
-	data       map[string]uint64
+	valueSize  uint32
+
+	data map[string]uint64
 }
 
 func (m *MapHashStorage) Lookup(key []byte) (uint64, error) {
@@ -40,9 +42,10 @@ func (m *MapHashStorage) Update(key []byte, value []byte, kind MapUpdateType) (b
 		if kind == BPF_NOEXIST {
 			return false, nil
 		}
-		m.vm.heap.Free(addr)
+		m.vm.SetBytes(addr, value, uint64(m.valueSize))
+	} else {
+		m.data[string(key)] = m.vm.heap.AllocWith(value)
 	}
-	m.data[string(key)] = m.vm.heap.AllocWith(value)
 
 	return true, nil
 }
@@ -78,6 +81,7 @@ func NewMapHashStorage(vm *VM, keySize, valueSize, maxEntries, flags uint32) (Ma
 	return &MapHashStorage{
 		vm:         vm,
 		maxEntries: maxEntries,
+		valueSize:  valueSize,
 		data:       make(map[string]uint64),
 	}, nil
 }

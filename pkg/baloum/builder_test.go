@@ -289,7 +289,7 @@ func runProg(t *testing.T, prog *Program, pre func(vm *VM), post func(vm *VM, ou
 			},
 			"map_text": {
 				Name:       "map_text",
-				Type:       ebpf.ProgramArray,
+				Type:       ebpf.Array,
 				KeySize:    4,
 				ValueSize:  16,
 				MaxEntries: 10,

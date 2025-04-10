@@ -1037,8 +1037,8 @@ func (vm *VM) Program(name string) (*ebpf.ProgramSpec, uint32) {
 }
 
 func (vm *VM) AddProgram(program *ebpf.ProgramSpec) uint32 {
-	// FD is the index in the map of programs + 1
-	fd := uint32(len(vm.programs)) + 1
+	// FD is the index in the map of programs
+	fd := uint32(len(vm.programs))
 	vm.programs = append(vm.programs, program)
 
 	return fd
