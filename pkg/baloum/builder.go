@@ -229,25 +229,30 @@ func (vr *Variable) Deref(vt VariableType, offset int) *Variable {
 		vr.pb.setError("invalid variable type")
 	}
 
-	if !vr.inReg() {
-		vr.load()
-	}
+	vr.load()
 
-	reg2, err := vr.pb.regAlloc.Alloc()
-	if err != nil {
-		vr.pb.setError(err)
-	}
-
-	derefVar := vr.pb.newVarReg(vt, reg2)
+	derefVar, reg := vr.pb.newVarReg(vt)
 
 	vr.pb.insts = append(vr.pb.insts,
-		asm.LoadMem(reg2, vr.reg, int16(offset), derefVar.AsmSizeof()),
+		asm.LoadMem(reg, vr.reg, int16(offset), derefVar.AsmSizeof()),
 	)
 
 	return derefVar
 }
 
-// PtrReg set reg to the address of the variable
+func (vr *Variable) Add(offset int) *Variable {
+	reg := vr.load()
+
+	newVar, newReg := vr.pb.newVarReg(vr.Type)
+
+	vr.pb.insts = append(vr.pb.insts,
+		asm.Mov.Reg(newReg, reg),
+		asm.Add.Imm(newReg, int32(offset)),
+	)
+
+	return newVar
+}
+
 func (vr *Variable) ptrReg(reg asm.Register) {
 	vr.persist()
 
@@ -293,12 +298,10 @@ func (vr *Variable) loadToReg(reg asm.Register) {
 			)
 		}
 	}
-	if isVarReg(reg) {
-		vr.store(reg)
-	}
+	vr.setReg(reg)
 }
 
-func (vr *Variable) store(reg asm.Register) {
+func (vr *Variable) setReg(reg asm.Register) {
 	vr.pb.regAlloc.Free(vr.reg)
 	vr.reg = reg
 }
@@ -316,7 +319,7 @@ func (vr *Variable) persist() {
 		asm.StoreMem(asm.RFP, int16(vr.addr), vr.reg, vr.AsmSizeof()),
 	)
 
-	vr.store(RNULL)
+	vr.setReg(RNULL)
 }
 
 type jmpSymbolGenerator struct {
@@ -437,7 +440,7 @@ func (p *ProgramBuilder) invalidateReg(reg asm.Register) {
 					asm.Mov.Reg(targetReg, reg),
 				)
 
-				v.store(targetReg)
+				v.setReg(targetReg)
 			}
 
 			break
@@ -919,7 +922,7 @@ func (p *ProgramBuilder) tailCall(ctx *Variable, mapName string, fd int, value i
 	)
 	p.insts = append(p.insts, p.CallFn(asm.FnTailCall)...)
 
-	ret.store(asm.R0)
+	ret.setReg(asm.R0)
 }
 
 // TailCallFD calls a function with a file descriptor
@@ -944,7 +947,7 @@ func (p *ProgramBuilder) MapLookup(mapName string, key *Variable, value *Variabl
 	)
 	p.insts = append(p.insts, p.CallFn(asm.FnMapLookupElem)...)
 
-	value.store(asm.R0)
+	value.setReg(asm.R0)
 }
 
 // MapLookupFD looks up a value in a map with a file descriptor
@@ -959,7 +962,7 @@ func (p *ProgramBuilder) MapLookupFD(fd int, key *Variable, value *Variable) {
 	)
 	p.insts = append(p.insts, p.CallFn(asm.FnMapLookupElem)...)
 
-	value.store(asm.R0)
+	value.setReg(asm.R0)
 }
 
 // MapUpdate updates a value in a map
@@ -977,7 +980,7 @@ func (p *ProgramBuilder) MapUpdate(mapName string, key *Variable, value *Variabl
 	p.insts = append(p.insts, p.CallFn(asm.FnMapUpdateElem)...)
 
 	if ret != nil {
-		ret.store(asm.R0)
+		ret.setReg(asm.R0)
 	}
 }
 
@@ -994,7 +997,7 @@ func (p *ProgramBuilder) MapDelete(mapName string, key *Variable, ret *Variable)
 	p.insts = append(p.insts, p.CallFn(asm.FnMapDeleteElem)...)
 
 	if ret != nil {
-		ret.store(asm.R0)
+		ret.setReg(asm.R0)
 	}
 }
 
@@ -1125,12 +1128,17 @@ func (p *ProgramBuilder) NewCtxVar() *Variable {
 	return variable
 }
 
-func (p *ProgramBuilder) newVarReg(kind VariableType, reg asm.Register) *Variable {
-	variable := newVariable(kind, math.MaxInt16, reg, p)
+// newVarReg creates a new variable backed by a register
+func (p *ProgramBuilder) newVarReg(kind VariableType) (*Variable, asm.Register) {
+	reg, err := p.regAlloc.Alloc()
+	if err != nil {
+		p.setError(err)
+	}
 
+	variable := newVariable(kind, math.MaxInt16, reg, p)
 	p.variables = append(p.variables, variable)
 
-	return variable
+	return variable, reg
 }
 
 // NewVar creates a new variable

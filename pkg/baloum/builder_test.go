@@ -146,6 +146,46 @@ func TestBuilderRegAlloc(t *testing.T) {
 	assert.NotEqual(t, int16(math.MaxInt16), v1.addr)
 }
 
+func TestVariableOperations(t *testing.T) {
+	t.Run("add", func(t *testing.T) {
+		var prog Program
+		builder := prog.Edit(ProgramBuilderOpts{})
+
+		var1 := builder.NewVarV(uint32(0))
+		var2 := var1.Add(4)
+
+		builder.Printk("value: %d", var2)
+
+		builder.Return(0)
+
+		err := builder.Commit()
+		require.Nil(t, err)
+
+		runProg(t, &prog, nil, func(_ *VM, output string) {
+			assert.Equal(t, "value: 4", output)
+		})
+	})
+
+	t.Run("add-ptr", func(t *testing.T) {
+		var prog Program
+		builder := prog.Edit(ProgramBuilderOpts{})
+
+		var1 := builder.NewVarV("0123456789")
+		var2 := var1.Add(4)
+
+		builder.Printk("value: %s", var2)
+
+		builder.Return(0)
+
+		err := builder.Commit()
+		require.Nil(t, err)
+
+		runProg(t, &prog, nil, func(_ *VM, output string) {
+			assert.Equal(t, "value: 456789", output)
+		})
+	})
+}
+
 func TestDeadCodeElimination(t *testing.T) {
 	t.Run("test-1", func(t *testing.T) {
 		var insts asm.Instructions
