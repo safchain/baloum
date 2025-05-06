@@ -18,31 +18,38 @@ package baloum
 
 import "errors"
 
+// MapPerfStorage is the type for the map perf storage
 type MapPerfStorage struct {
 	vm   *VM
 	data chan []byte
 }
 
+// Lookup looks up a key in the map
 func (m *MapPerfStorage) Lookup(key []byte) (uint64, error) {
 	return 0, errors.New("operation not supported")
 }
 
+// Update updates a key in the map
 func (m *MapPerfStorage) Update(key []byte, value []byte, kind MapUpdateType) (bool, error) {
 	return false, errors.New("operation not supported")
 }
 
+// Delete deletes a key in the map
 func (m *MapPerfStorage) Delete(key []byte) (bool, error) {
 	return false, errors.New("operation not supported")
 }
 
+// Keys returns the keys of the map
 func (m *MapPerfStorage) Keys() ([][]byte, error) {
 	return nil, errors.New("operation not supported")
 }
 
+// Read reads the map
 func (m *MapPerfStorage) Read() (<-chan []byte, error) {
 	return m.data, nil
 }
 
+// Write writes to the map
 func (m *MapPerfStorage) Write(data []byte) error {
 	select {
 	case m.data <- data:
@@ -52,6 +59,7 @@ func (m *MapPerfStorage) Write(data []byte) error {
 	return nil
 }
 
+// NewMapPerfStorage creates a new map perf storage
 func NewMapPerfStorage(vm *VM, keySize, valueSize, maxEntries, flags uint32) (MapStorage, error) {
 	return &MapPerfStorage{
 		vm:   vm,

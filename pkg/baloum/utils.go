@@ -36,6 +36,7 @@ func progMatch(prog *ebpf.ProgramSpec, sections ...string) bool {
 	return false
 }
 
+// Bytes2String converts a byte slice to a string
 func Bytes2String(data []byte) string {
 	idx := bytes.IndexByte(data, 0)
 	if idx == -1 {
@@ -44,11 +45,13 @@ func Bytes2String(data []byte) string {
 	return string(data[0:uint64(idx)])
 }
 
+// ToInt32 converts a value to an int32
 func ToInt32(value interface{}) (int32, error) {
 	i, err := ToInt64(value)
 	return int32(i), err
 }
 
+// ToInt64 converts a value to an int64
 func ToInt64(value interface{}) (int64, error) {
 	switch v := value.(type) {
 	case int:

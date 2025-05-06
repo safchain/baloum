@@ -72,6 +72,7 @@ var (
 	}
 )
 
+// FnSleepImpl sleeps for a given duration
 func FnSleepImpl(vm *VM, inst *asm.Instruction) error {
 	if vm.Opts.Fncs.Sleep != nil {
 		vm.Opts.Fncs.Sleep(vm, time.Duration(vm.regs[asm.R1]))
@@ -79,11 +80,13 @@ func FnSleepImpl(vm *VM, inst *asm.Instruction) error {
 	return nil
 }
 
+// FnMallocImpl allocates memory on the heap
 func FnMallocImpl(vm *VM, inst *asm.Instruction) error {
 	vm.regs[asm.R0] = vm.heap.AllocWith(make([]byte, vm.regs[asm.R1]))
 	return nil
 }
 
+// FnCallImpl calls a function
 func FnCallImpl(vm *VM, inst *asm.Instruction) error {
 	data, err := vm.GetBytes(vm.regs[asm.R1], 0)
 	if err != nil {
@@ -110,6 +113,7 @@ func FnCallImpl(vm *VM, inst *asm.Instruction) error {
 	return nil
 }
 
+// FnStrCmpImpl compares two strings
 func FnStrCmpImpl(vm *VM, inst *asm.Instruction) error {
 	code := ErrorCode
 	vm.regs[asm.R0] = uint64(code)
@@ -130,6 +134,7 @@ func FnStrCmpImpl(vm *VM, inst *asm.Instruction) error {
 	return nil
 }
 
+// FnMemCmpImpl compares two memory blocks
 func FnMemCmpImpl(vm *VM, inst *asm.Instruction) error {
 	code := ErrorCode
 	vm.regs[asm.R0] = uint64(code)
@@ -152,6 +157,7 @@ func FnMemCmpImpl(vm *VM, inst *asm.Instruction) error {
 	return nil
 }
 
+// FnMemCpyImpl copies a memory block
 func FnMemCpyImpl(vm *VM, inst *asm.Instruction) error {
 	code := ErrorCode
 	vm.regs[asm.R0] = uint64(code)
@@ -170,6 +176,7 @@ var (
 	reFmt = regexp.MustCompile("(%[^%])")
 )
 
+// FnTracePrintkImpl prints a formatted string
 func FnTracePrintkImpl(vm *VM, inst *asm.Instruction) error {
 	format, err := vm.GetString(vm.regs[asm.R1])
 	if err != nil {
@@ -219,6 +226,7 @@ func FnTracePrintkImpl(vm *VM, inst *asm.Instruction) error {
 	return nil
 }
 
+// FnProbeReadImpl reads a memory block
 func FnProbeReadImpl(vm *VM, inst *asm.Instruction) error {
 	size := vm.regs[asm.R2]
 
@@ -237,6 +245,7 @@ func FnProbeReadImpl(vm *VM, inst *asm.Instruction) error {
 	return nil
 }
 
+// FnProbeReadStrImpl reads a string
 func FnProbeReadStrImpl(vm *VM, inst *asm.Instruction) error {
 	size := vm.regs[asm.R2]
 
@@ -260,6 +269,7 @@ func FnProbeReadStrImpl(vm *VM, inst *asm.Instruction) error {
 	return nil
 }
 
+// FnGetCurrentPidTgidImpl gets the current pid and tgid
 func FnGetCurrentPidTgidImpl(vm *VM, inst *asm.Instruction) error {
 	vm.regs[asm.R0] = 0
 	if vm.Opts.Fncs.GetCurrentPidTgid != nil {
@@ -272,6 +282,7 @@ func FnGetCurrentPidTgidImpl(vm *VM, inst *asm.Instruction) error {
 	return nil
 }
 
+// FnKtimeGetNsImpl gets the current time in nanoseconds
 func FnKtimeGetNsImpl(vm *VM, inst *asm.Instruction) error {
 	vm.regs[asm.R0] = 0
 	if vm.Opts.Fncs.KtimeGetNS != nil {
@@ -284,10 +295,11 @@ func FnKtimeGetNsImpl(vm *VM, inst *asm.Instruction) error {
 	return nil
 }
 
+// FnMapLookupElemImpl looks up a key in a map
 func FnMapLookupElemImpl(vm *VM, inst *asm.Instruction) error {
 	vm.regs[asm.R0] = 0
 
-	_map := vm.maps.GetMapById(int(vm.regs[asm.R1]))
+	_map := vm.maps.GetMapByFd(int(vm.regs[asm.R1]))
 	if _map == nil {
 		return errors.New("map unknown")
 	}
@@ -305,10 +317,11 @@ func FnMapLookupElemImpl(vm *VM, inst *asm.Instruction) error {
 	return nil
 }
 
+// FnMapUpdateElemImpl updates a key in a map
 func FnMapUpdateElemImpl(vm *VM, inst *asm.Instruction) error {
 	vm.regs[asm.R0] = 0
 
-	_map := vm.maps.GetMapById(int(vm.regs[asm.R1]))
+	_map := vm.maps.GetMapByFd(int(vm.regs[asm.R1]))
 	if _map == nil {
 		return errors.New("map unknown")
 	}
@@ -334,10 +347,11 @@ func FnMapUpdateElemImpl(vm *VM, inst *asm.Instruction) error {
 	return err
 }
 
+// FnMapDeleteElemImpl deletes a key in a map
 func FnMapDeleteElemImpl(vm *VM, inst *asm.Instruction) error {
 	vm.regs[asm.R0] = 0
 
-	_map := vm.maps.GetMapById(int(vm.regs[asm.R1]))
+	_map := vm.maps.GetMapByFd(int(vm.regs[asm.R1]))
 	if _map == nil {
 		return errors.New("map unknown")
 	}
@@ -357,10 +371,11 @@ func FnMapDeleteElemImpl(vm *VM, inst *asm.Instruction) error {
 	return nil
 }
 
+// FnPerfEventOutputImpl writes data to a map
 func FnPerfEventOutputImpl(vm *VM, inst *asm.Instruction) error {
 	vm.regs[asm.R0] = 0
 
-	_map := vm.maps.GetMapById(int(vm.regs[asm.R2]))
+	_map := vm.maps.GetMapByFd(int(vm.regs[asm.R2]))
 	if _map == nil {
 		return errors.New("map unknown")
 	}
@@ -378,6 +393,7 @@ func FnPerfEventOutputImpl(vm *VM, inst *asm.Instruction) error {
 	return _map.Write(data, size)
 }
 
+// FnGetSmpProcessorIdImpl gets the current CPU id
 func FnGetSmpProcessorIdImpl(vm *VM, inst *asm.Instruction) error {
 	vm.regs[asm.R0] = 0
 
@@ -392,13 +408,14 @@ func FnGetSmpProcessorIdImpl(vm *VM, inst *asm.Instruction) error {
 	return nil
 }
 
+// FnTailCallImpl performs a tail call
 func FnTailCallImpl(vm *VM, inst *asm.Instruction) error {
 	if vm.tailCails >= 32 {
 		return errors.New("maximum tail calls reach")
 	}
 	vm.tailCails++
 
-	_map := vm.maps.GetMapById(int(vm.regs[asm.R2]))
+	_map := vm.maps.GetMapByFd(int(vm.regs[asm.R2]))
 	if _map == nil {
 		return errors.New("map unknown")
 	}

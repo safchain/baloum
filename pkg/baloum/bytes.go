@@ -24,6 +24,7 @@ import (
 	"unsafe"
 )
 
+// ToBytes converts an object to a byte slice
 func ToBytes(obj interface{}, size int) ([]byte, error) {
 	if size == 0 {
 		return nil, errors.New("data size error")
@@ -88,6 +89,7 @@ func ToBytes(obj interface{}, size int) ([]byte, error) {
 	return b, nil
 }
 
+// FromBytes converts a byte slice to an object
 func FromBytes(data []byte, obj interface{}) error {
 	if m, ok := obj.(encoding.BinaryUnmarshaler); ok {
 		return m.UnmarshalBinary(data)

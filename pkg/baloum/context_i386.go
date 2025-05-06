@@ -18,6 +18,7 @@ package baloum
 
 import "encoding/binary"
 
+// StdContextI386 is the type for the standard context
 func (ctx *StdContext) Bytes() []byte {
 	data := make([]byte, 168)
 

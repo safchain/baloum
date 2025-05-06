@@ -36,22 +36,26 @@ const (
 	IDX_MASK uint64 = 0xffff
 )
 
+// MemBlock is the type for the memory block
 type MemBlock struct {
 	idx  uint32
 	data []byte
 }
 
+// Heap is the type for the heap
 type Heap struct {
 	idx    uint32
 	blocks *list.List
 }
 
+// NewHeap creates a new heap
 func NewHeap() *Heap {
 	return &Heap{
 		blocks: list.New(),
 	}
 }
 
+// GetMem returns the memory at the given address
 func (h *Heap) GetMem(addr uint64) ([]byte, uint64, error) {
 	idx := addr >> (5 * 8) & IDX_MASK
 	for el := h.blocks.Front(); el != nil; el = el.Next() {
@@ -64,10 +68,12 @@ func (h *Heap) GetMem(addr uint64) ([]byte, uint64, error) {
 	return nil, 0, errors.New("address not found")
 }
 
+// Alloc allocates a new memory block
 func (h *Heap) Alloc(size int) uint64 {
 	return h.AllocWith(make([]byte, size))
 }
 
+// Free frees a memory block
 func (h *Heap) Free(addr uint64) {
 	idx := addr >> (5 * 8) & IDX_MASK
 	for el := h.blocks.Front(); el != nil; el = el.Next() {
@@ -78,6 +84,7 @@ func (h *Heap) Free(addr uint64) {
 	}
 }
 
+// AllocWith allocates a new memory block with the given data
 func (h *Heap) AllocWith(data []byte) uint64 {
 	clone := make([]byte, len(data))
 	copy(clone, data)
@@ -88,6 +95,7 @@ func (h *Heap) AllocWith(data []byte) uint64 {
 	return blockIdxToAddr(idx)
 }
 
+// blockIdxToAddr converts a block index to an address
 func blockIdxToAddr(idx uint32) uint64 {
 	return HEAP_ADDR_MASK | (uint64(idx)&0xffff)<<(5*8)
 }

@@ -24,13 +24,16 @@ import (
 )
 
 const (
+	// CTX_SIZE is the size of the context
 	CTX_SIZE = 5 * 8 // 5 argument
 )
 
+// Context is the type for the context
 type Context interface {
 	SetRegs(vm *VM)
 }
 
+// StdContext is the type for the standard context
 /*
 	struct baloum_ctx {
 		u64 arg0;
@@ -48,6 +51,7 @@ type StdContext struct {
 	Arg4 uint64
 }
 
+// Parse parses the context from a byte slice
 func (ctx *StdContext) Parse(data []byte) error {
 	if len(data) < CTX_SIZE {
 		return errors.New("not enough data")
@@ -67,14 +71,17 @@ func (ctx *StdContext) Parse(data []byte) error {
 	return nil
 }
 
+// SetRegs sets the registers from the context
 func (ctx *StdContext) SetRegs(vm *VM) {
 	vm.regs[asm.R1] = vm.heap.AllocWith(ctx.Bytes())
 }
 
+// RawContext is the type for the raw context
 type RawContext struct {
 	Regs Regs
 }
 
+// SetRegs sets the registers from the context
 func (ctx *RawContext) SetRegs(vm *VM) {
 	vm.regs = ctx.Regs
 }

@@ -21,6 +21,7 @@ import (
 	"errors"
 )
 
+// MapArrayStorage is the type for the map array storage
 type MapArrayStorage struct {
 	vm         *VM
 	maxEntries uint32
@@ -29,6 +30,7 @@ type MapArrayStorage struct {
 	data []uint64
 }
 
+// mapArrayKeyIndex converts a key to an index
 func mapArrayKeyIndex(key []byte) (int, error) {
 	var idx int
 	switch len(key) {
@@ -45,6 +47,7 @@ func mapArrayKeyIndex(key []byte) (int, error) {
 	return idx, nil
 }
 
+// Lookup looks up a key in the map
 func (m *MapArrayStorage) Lookup(key []byte) (uint64, error) {
 	idx, err := mapArrayKeyIndex(key)
 	if err != nil {
@@ -58,6 +61,7 @@ func (m *MapArrayStorage) Lookup(key []byte) (uint64, error) {
 	return m.data[idx], nil
 }
 
+// Update updates a key in the map
 func (m *MapArrayStorage) Update(key []byte, value []byte, kind MapUpdateType) (bool, error) {
 	idx, err := mapArrayKeyIndex(key)
 	if err != nil {
@@ -73,10 +77,12 @@ func (m *MapArrayStorage) Update(key []byte, value []byte, kind MapUpdateType) (
 	return true, nil
 }
 
+// Delete deletes a key in the map
 func (m *MapArrayStorage) Delete(key []byte) (bool, error) {
 	return false, errors.New("operation not supported")
 }
 
+// Keys returns the keys of the map
 func (m *MapArrayStorage) Keys() ([][]byte, error) {
 	var keys [][]byte
 
@@ -89,14 +95,17 @@ func (m *MapArrayStorage) Keys() ([][]byte, error) {
 	return keys, nil
 }
 
+// Read reads the map
 func (m *MapArrayStorage) Read() (<-chan []byte, error) {
 	return nil, errors.New("operation not supported")
 }
 
+// Write writes to the map
 func (m *MapArrayStorage) Write(data []byte) error {
 	return errors.New("operation not supported")
 }
 
+// NewMapArrayStorage creates a new map array storage
 func NewMapArrayStorage(vm *VM, keySize, valueSize, maxEntries, flags uint32) (MapStorage, error) {
 	data := make([]uint64, maxEntries)
 	for i := range data {

@@ -27,11 +27,13 @@ import (
 	"golang.org/x/exp/slices"
 )
 
+// BuilderError is the type for the builder error
 type BuilderError struct {
 	err        error
 	stacktrace []byte
 }
 
+// NewBuilderError creates a new builder error
 func NewBuilderError(err error) *BuilderError {
 	p := &BuilderError{
 		err:        err,
@@ -41,14 +43,17 @@ func NewBuilderError(err error) *BuilderError {
 	return p
 }
 
+// Error returns the error message
 func (b *BuilderError) Error() string {
 	return b.err.Error()
 }
 
+// Stack returns the stack trace
 func (b *BuilderError) Stack() []byte {
 	return b.stacktrace
 }
 
+// Condition is the type for the condition
 type Condition func(trueSym, falseSym string)
 
 type stackMemBlock struct {
@@ -62,15 +67,18 @@ const (
 	RNULL = asm.Register(99)
 )
 
-func IsVarReg(reg asm.Register) bool {
+// isVarReg variable register in opposite of param register
+func isVarReg(reg asm.Register) bool {
 	return reg >= asm.R6 && reg < asm.R10
 }
 
+// RegisterAllocator is the type for the register allocator
 type RegisterAllocator struct {
 	available  []asm.Register
 	onExausted func()
 }
 
+// Alloc allocates a register
 func (r *RegisterAllocator) Alloc() (asm.Register, error) {
 	if len(r.available) == 0 {
 		// try to free some registers
@@ -87,6 +95,7 @@ func (r *RegisterAllocator) Alloc() (asm.Register, error) {
 	return reg, nil
 }
 
+// Alloc2 allocates two registers
 func (r *RegisterAllocator) Alloc2() (asm.Register, asm.Register, error) {
 	reg1, err := r.Alloc()
 	if err != nil {
@@ -101,14 +110,16 @@ func (r *RegisterAllocator) Alloc2() (asm.Register, asm.Register, error) {
 	return reg1, reg2, nil
 }
 
+// Free frees a register
 func (r *RegisterAllocator) Free(regs ...asm.Register) {
 	for _, reg := range regs {
-		if IsVarReg(reg) && reg != RNULL {
+		if isVarReg(reg) && reg != RNULL {
 			r.available = append([]asm.Register{reg}, r.available...)
 		}
 	}
 }
 
+// NewRegisterAllocator creates a new register allocator
 func NewRegisterAllocator(onExausted func()) *RegisterAllocator {
 	r := RegisterAllocator{
 		onExausted: onExausted,
@@ -121,24 +132,36 @@ func NewRegisterAllocator(onExausted func()) *RegisterAllocator {
 	return &r
 }
 
+// VariableType is the type for the variable type
 type VariableType int
 
 const (
+	// Int8Type is the type for the int8 variable
 	Int8Type VariableType = iota
+	// UInt8Type is the type for the uint8 variable
 	UInt8Type
+	// Int16Type is the type for the int16 variable
 	Int16Type
+	// UInt16Type is the type for the uint16 variable
 	UInt16Type
+	// Int32Type is the type for the int32 variable
 	Int32Type
+	// UInt32Type is the type for the uint32 variable
 	UInt32Type
+	// Int64Type is the type for the int64 variable
 	Int64Type
+	// UInt64Type is the type for the uint64 variable
 	UInt64Type
+	// PtrType is the type for the pointer variable
 	PtrType
 )
 
+// IsPtr checks if a variable is a pointer
 func (vt VariableType) IsPtr() bool {
 	return vt == PtrType
 }
 
+// AsmSizeof returns the size of the variable in bytes
 func (vt VariableType) AsmSizeof() asm.Size {
 	switch vt {
 	case Int8Type, UInt8Type:
@@ -155,11 +178,14 @@ func (vt VariableType) AsmSizeof() asm.Size {
 	return asm.InvalidSize
 }
 
+// Sizeof returns the size of the variable in bytes
 func (vt VariableType) Sizeof() int {
 	return vt.AsmSizeof().Sizeof()
 }
 
+// Variable is the type for the variable
 type Variable struct {
+	// Type is the type of the variable
 	Type VariableType
 
 	addr int16
@@ -167,6 +193,7 @@ type Variable struct {
 	pb   *ProgramBuilder
 }
 
+// NewVariable creates a new variable
 func newVariable(kind VariableType, addr int16, reg asm.Register, pb *ProgramBuilder) *Variable {
 	return &Variable{
 		Type: kind,
@@ -176,28 +203,33 @@ func newVariable(kind VariableType, addr int16, reg asm.Register, pb *ProgramBui
 	}
 }
 
+// IsPtr checks if a variable is a pointer
 func (vr *Variable) IsPtr() bool {
 	return vr.Type.IsPtr()
 }
 
+// AsmSizeof returns the size of the variable in bytes
 func (vr *Variable) AsmSizeof() asm.Size {
 	return vr.Type.AsmSizeof()
 }
 
+// Sizeof returns the size of the variable in bytes
 func (vr *Variable) Sizeof() int {
 	return vr.Type.Sizeof()
 }
 
-func (vr *Variable) InReg() bool {
+// InReg checks if a variable is in a register
+func (vr *Variable) inReg() bool {
 	return vr.reg != RNULL
 }
 
+// Deref dereferences a pointer variable
 func (vr *Variable) Deref(vt VariableType, offset int) *Variable {
 	if !vr.IsPtr() {
 		vr.pb.setError("invalid variable type")
 	}
 
-	if !vr.InReg() {
+	if !vr.inReg() {
 		vr.load()
 	}
 
@@ -226,7 +258,7 @@ func (vr *Variable) ptrReg(reg asm.Register) {
 }
 
 func (vr *Variable) load() asm.Register {
-	if vr.InReg() {
+	if vr.inReg() {
 		return vr.reg
 	}
 
@@ -235,13 +267,13 @@ func (vr *Variable) load() asm.Register {
 		vr.pb.setError(err)
 	}
 
-	vr.loadReg(regVal)
+	vr.loadToReg(regVal)
 
 	return regVal
 }
 
-func (vr *Variable) loadReg(reg asm.Register) {
-	if vr.InReg() {
+func (vr *Variable) loadToReg(reg asm.Register) {
+	if vr.inReg() {
 		if vr.reg == reg {
 			return
 		}
@@ -261,7 +293,7 @@ func (vr *Variable) loadReg(reg asm.Register) {
 			)
 		}
 	}
-	if IsVarReg(reg) {
+	if isVarReg(reg) {
 		vr.store(reg)
 	}
 }
@@ -272,7 +304,7 @@ func (vr *Variable) store(reg asm.Register) {
 }
 
 func (vr *Variable) persist() {
-	if !vr.InReg() {
+	if !vr.inReg() {
 		return
 	}
 
@@ -287,23 +319,24 @@ func (vr *Variable) persist() {
 	vr.store(RNULL)
 }
 
-type JmpSymbolGenerator struct {
+type jmpSymbolGenerator struct {
 	idx int
 }
 
-type EnterJmpSymbolBlock struct {
+type enterJmpSymbolBlock struct {
 	idx int
 }
 
-func (s *JmpSymbolGenerator) EnterBlock() *EnterJmpSymbolBlock {
+func (s *jmpSymbolGenerator) enterBlock() *enterJmpSymbolBlock {
 	s.idx++
-	return &EnterJmpSymbolBlock{idx: s.idx}
+	return &enterJmpSymbolBlock{idx: s.idx}
 }
 
-func (e *EnterJmpSymbolBlock) GetSymbol(prefix string) string {
+func (e *enterJmpSymbolBlock) getSymbol(prefix string) string {
 	return fmt.Sprintf("%s-%d-%s", prefix, e.idx, JumpSymbolType)
 }
 
+// ProgramBuilderOpts is the type for the program builder options
 type ProgramBuilderOpts struct {
 	StackSize int
 }
@@ -314,17 +347,19 @@ func (p *ProgramBuilderOpts) applyDefault() {
 	}
 }
 
+// ProgramBuilder is the type for the program builder
 type ProgramBuilder struct {
 	program   *Program
 	opts      ProgramBuilderOpts
 	insts     asm.Instructions
 	blocks    []stackMemBlock
-	jmpSymGen JmpSymbolGenerator
+	jmpSymGen jmpSymbolGenerator
 	regAlloc  *RegisterAllocator
 	err       error
 	variables []*Variable
 }
 
+// NewProgramBuilder creates a new program builder
 func NewProgramBuilder(p *Program, opts ProgramBuilderOpts) *ProgramBuilder {
 	opts.applyDefault()
 
@@ -338,6 +373,7 @@ func NewProgramBuilder(p *Program, opts ProgramBuilderOpts) *ProgramBuilder {
 	return pb
 }
 
+// Error returns the error
 func (p *ProgramBuilder) Error() error {
 	return p.err
 }
@@ -390,7 +426,7 @@ func (p *ProgramBuilder) varByReg(reg asm.Register) *Variable {
 
 func (p *ProgramBuilder) invalidateReg(reg asm.Register) {
 	for _, v := range p.variables {
-		if v.InReg() && v.reg == reg {
+		if v.inReg() && v.reg == reg {
 			targetReg, err := p.regAlloc.Alloc()
 			if err != nil {
 				p.setError(err)
@@ -409,6 +445,7 @@ func (p *ProgramBuilder) invalidateReg(reg asm.Register) {
 	}
 }
 
+// CallFn calls a function
 func (p *ProgramBuilder) CallFn(fn asm.BuiltinFunc) asm.Instructions {
 	// invalidate R0
 	p.invalidateReg(asm.R0)
@@ -418,6 +455,7 @@ func (p *ProgramBuilder) CallFn(fn asm.BuiltinFunc) asm.Instructions {
 	}
 }
 
+// Commit commits the program
 func (p *ProgramBuilder) Commit() error {
 	// relocate symbols
 	for i := len(p.insts) - 1; i > 0; i-- {
@@ -554,6 +592,7 @@ func (p *ProgramBuilder) stackBytes(bytes []byte) (int16, asm.Instructions) {
 	return addr, instructions
 }
 
+// Return returns a value from a function
 func (p *ProgramBuilder) Return(code int) {
 	p.insts = append(p.insts,
 		asm.Mov.Imm(asm.R0, int32(code)),
@@ -561,6 +600,7 @@ func (p *ProgramBuilder) Return(code int) {
 	)
 }
 
+// Printk prints a formatted string
 func (p *ProgramBuilder) Printk(format string, args ...interface{}) {
 	if len(args) > 3 {
 		p.setError("maximum of args excedeed")
@@ -584,7 +624,7 @@ func (p *ProgramBuilder) Printk(format string, args ...interface{}) {
 	addArg := func(reg asm.Register, arg interface{}) error {
 		switch arg := arg.(type) {
 		case *Variable:
-			arg.loadReg(reg)
+			arg.loadToReg(reg)
 		case nil:
 		default:
 			if v, err := ToInt32(arg); err == nil {
@@ -613,6 +653,7 @@ func (p *ProgramBuilder) Printk(format string, args ...interface{}) {
 	p.stackFree(addr)
 }
 
+// StrStaticCmp compares a variable with a static string
 func (p *ProgramBuilder) StrStaticCmp(var1 *Variable, str string) Condition {
 	return func(trueSym, falseSym string) {
 		if !var1.IsPtr() {
@@ -647,6 +688,7 @@ func (p *ProgramBuilder) StrStaticCmp(var1 *Variable, str string) Condition {
 	}
 }
 
+// StrCmp compares two variables
 func (p *ProgramBuilder) StrCmp(var1 *Variable, var2 *Variable, unroll int) Condition {
 	return func(trueSym string, falseSym string) {
 		if !var1.IsPtr() || !var2.IsPtr() {
@@ -692,6 +734,7 @@ func (p *ProgramBuilder) StrCmp(var1 *Variable, var2 *Variable, unroll int) Cond
 	}
 }
 
+// StrIn checks if a variable is in a list of static strings
 func (p *ProgramBuilder) StrIn(var1 *Variable, strs ...string) Condition {
 	var conds []Condition
 	for _, str := range strs {
@@ -700,6 +743,7 @@ func (p *ProgramBuilder) StrIn(var1 *Variable, strs ...string) Condition {
 	return p.Or(conds...)
 }
 
+// True returns a condition that always returns true
 func (p *ProgramBuilder) True() Condition {
 	return func(trueSym, falseSym string) {
 		p.insts = append(p.insts,
@@ -708,6 +752,7 @@ func (p *ProgramBuilder) True() Condition {
 	}
 }
 
+// False returns a condition that always returns false
 func (p *ProgramBuilder) False() Condition {
 	return func(trueSym, falseSym string) {
 		p.insts = append(p.insts,
@@ -716,15 +761,16 @@ func (p *ProgramBuilder) False() Condition {
 	}
 }
 
+// And returns a condition that returns true if all conditions are true
 func (p *ProgramBuilder) And(conds ...Condition) Condition {
 	return func(trueSym, falseSym string) {
 		for i, cond := range conds {
-			sbg := p.jmpSymGen.EnterBlock()
+			sbg := p.jmpSymGen.enterBlock()
 
 			if i == len(conds)-1 {
 				cond(trueSym, falseSym)
 			} else {
-				nextCondSym := sbg.GetSymbol("next-cond")
+				nextCondSym := sbg.getSymbol("next-cond")
 
 				cond(nextCondSym, falseSym)
 				p.updateLastInstSymbol(nextCondSym)
@@ -733,15 +779,16 @@ func (p *ProgramBuilder) And(conds ...Condition) Condition {
 	}
 }
 
+// Or returns a condition that returns true if any of the conditions are true
 func (p *ProgramBuilder) Or(conds ...Condition) Condition {
 	return func(trueSym, falseSym string) {
 		for i, cond := range conds {
-			sbg := p.jmpSymGen.EnterBlock()
+			sbg := p.jmpSymGen.enterBlock()
 
 			if i == len(conds)-1 {
 				cond(trueSym, falseSym)
 			} else {
-				nextCondSym := sbg.GetSymbol("next-cond")
+				nextCondSym := sbg.getSymbol("next-cond")
 
 				cond(trueSym, nextCondSym)
 				p.updateLastInstSymbol(nextCondSym)
@@ -750,40 +797,49 @@ func (p *ProgramBuilder) Or(conds ...Condition) Condition {
 	}
 }
 
+// IsNull returns a condition that returns true if a variable is null
 func (p *ProgramBuilder) IsNull(var1 *Variable) Condition {
 	return p.Equal(var1, uint32(0))
 }
 
+// IsNotNull returns a condition that returns true if a variable is not null
 func (p *ProgramBuilder) IsNotNull(var1 *Variable) Condition {
 	return p.NotEqual(var1, uint32(0))
 }
 
+// NotEqual returns a condition that returns true if a variable is not equal to another variable
 func (p *ProgramBuilder) NotEqual(var1 *Variable, var2 interface{}) Condition {
 	return p.Not(p.Equal(var1, var2))
 }
 
+// Not returns a condition that returns true if a condition is false
 func (p *ProgramBuilder) Not(cond Condition) Condition {
 	return func(trueSym, falseSym string) {
 		cond(falseSym, trueSym)
 	}
 }
 
+// Equal returns a condition that returns true if a variable is equal to another variable
 func (p *ProgramBuilder) Equal(var1 *Variable, var2 interface{}) Condition {
 	return p.cmp(var1, var2, asm.JEq)
 }
 
+// Greater returns a condition that returns true if a variable is greater than another variable
 func (p *ProgramBuilder) Greater(var1 *Variable, var2 interface{}) Condition {
 	return p.cmp(var1, var2, asm.JGT)
 }
 
+// GreaterEqual returns a condition that returns true if a variable is greater than or equal to another variable
 func (p *ProgramBuilder) GreaterEqual(var1 *Variable, var2 interface{}) Condition {
 	return p.cmp(var1, var2, asm.JGE)
 }
 
+// Lesser returns a condition that returns true if a variable is less than another variable
 func (p *ProgramBuilder) Lesser(var1 *Variable, var2 interface{}) Condition {
 	return p.cmp(var1, var2, asm.JLT)
 }
 
+// LesserEqual returns a condition that returns true if a variable is less than or equal to another variable
 func (p *ProgramBuilder) LesserEqual(var1 *Variable, var2 interface{}) Condition {
 	return p.cmp(var1, var2, asm.JLE)
 }
@@ -842,11 +898,11 @@ func (p *ProgramBuilder) tailCall(ctx *Variable, mapName string, fd int, value i
 		p.invalidateReg(asm.R1)
 	}
 
-	ctx.loadReg(asm.R1)
+	ctx.loadToReg(asm.R1)
 
 	switch v := value.(type) {
 	case *Variable:
-		v.loadReg(asm.R3)
+		v.loadToReg(asm.R3)
 	default:
 		i, err := ToInt32(value)
 		if err != nil {
@@ -866,14 +922,17 @@ func (p *ProgramBuilder) tailCall(ctx *Variable, mapName string, fd int, value i
 	ret.store(asm.R0)
 }
 
+// TailCallFD calls a function with a file descriptor
 func (p *ProgramBuilder) TailCallFD(ctx *Variable, fd int, value interface{}, ret *Variable) {
 	p.tailCall(ctx, "", fd, value, ret)
 }
 
+// TailCall calls a function with a map name
 func (p *ProgramBuilder) TailCall(ctx *Variable, mapName string, value interface{}, ret *Variable) {
 	p.tailCall(ctx, mapName, 0, value, ret)
 }
 
+// MapLookup looks up a value in a map
 func (p *ProgramBuilder) MapLookup(mapName string, key *Variable, value *Variable) {
 	key.ptrReg(asm.R2)
 
@@ -888,6 +947,7 @@ func (p *ProgramBuilder) MapLookup(mapName string, key *Variable, value *Variabl
 	value.store(asm.R0)
 }
 
+// MapLookupFD looks up a value in a map with a file descriptor
 func (p *ProgramBuilder) MapLookupFD(fd int, key *Variable, value *Variable) {
 	key.ptrReg(asm.R2)
 
@@ -902,6 +962,7 @@ func (p *ProgramBuilder) MapLookupFD(fd int, key *Variable, value *Variable) {
 	value.store(asm.R0)
 }
 
+// MapUpdate updates a value in a map
 func (p *ProgramBuilder) MapUpdate(mapName string, key *Variable, value *Variable, ret *Variable, kind MapUpdateType) {
 	key.ptrReg(asm.R2)
 	value.ptrReg(asm.R3)
@@ -920,6 +981,7 @@ func (p *ProgramBuilder) MapUpdate(mapName string, key *Variable, value *Variabl
 	}
 }
 
+// MapDelete deletes a value in a map
 func (p *ProgramBuilder) MapDelete(mapName string, key *Variable, ret *Variable) {
 	key.ptrReg(asm.R2)
 
@@ -944,11 +1006,17 @@ func (p *ProgramBuilder) updateLastInstSymbol(symbol string) {
 	p.insts[p.lastInstIdx()] = p.insts[p.lastInstIdx()].WithSymbol(symbol)
 }
 
+// If executes a condition and then
+func (p *ProgramBuilder) IfThen(cond Condition, then func()) {
+	p.IfThenElse(cond, then, nil)
+}
+
+// IfThenElse executes a condition and then or else
 func (p *ProgramBuilder) IfThenElse(cond Condition, then func(), els func()) {
 	var (
-		jsg               = p.jmpSymGen.EnterBlock()
-		endifSym, elseSym = jsg.GetSymbol("endif"), jsg.GetSymbol("else")
-		trueSym, falseSym = jsg.GetSymbol("then"), endifSym
+		jsg               = p.jmpSymGen.enterBlock()
+		endifSym, elseSym = jsg.getSymbol("endif"), jsg.getSymbol("else")
+		trueSym, falseSym = jsg.getSymbol("then"), endifSym
 	)
 
 	if els != nil {
@@ -975,13 +1043,14 @@ func (p *ProgramBuilder) IfThenElse(cond Condition, then func(), els func()) {
 
 func (p *ProgramBuilder) onRegExausted() {
 	for _, vr := range p.variables {
-		if vr.InReg() && IsVarReg(vr.reg) {
+		if vr.inReg() && isVarReg(vr.reg) {
 			vr.persist()
 			return
 		}
 	}
 }
 
+// NewNumberVar creates a new number variable
 func (p *ProgramBuilder) NewNumberVar(kind VariableType, value int64) *Variable {
 	variable := newVariable(kind, math.MaxInt16, RNULL, p)
 
@@ -1006,6 +1075,7 @@ func (p *ProgramBuilder) NewNumberVar(kind VariableType, value int64) *Variable 
 	return variable
 }
 
+// NewByteArrayVar creates a new byte array variable
 func (p *ProgramBuilder) NewByteArrayVar(value []byte) *Variable {
 	addr, insts := p.stackBytes(value)
 	p.insts = append(p.insts, insts...)
@@ -1028,6 +1098,7 @@ func (p *ProgramBuilder) NewByteArrayVar(value []byte) *Variable {
 	return variable
 }
 
+// NewPtrVar creates a new pointer variable
 func (p *ProgramBuilder) NewPtrVar() *Variable {
 	variable := newVariable(PtrType, math.MaxInt16, RNULL, p)
 
@@ -1042,6 +1113,7 @@ func (p *ProgramBuilder) NewPtrVar() *Variable {
 	return variable
 }
 
+// NewCtxVar creates a new context variable
 func (p *ProgramBuilder) NewCtxVar() *Variable {
 	// be sure that R1 is not used by another ctx variable
 	p.invalidateReg(asm.R1)
@@ -1061,6 +1133,7 @@ func (p *ProgramBuilder) newVarReg(kind VariableType, reg asm.Register) *Variabl
 	return variable
 }
 
+// NewVar creates a new variable
 func (p *ProgramBuilder) NewVar(kind VariableType) *Variable {
 	switch t := kind; t {
 	case Int8Type, UInt8Type, Int16Type, UInt16Type, Int32Type, UInt32Type, Int64Type, UInt64Type:
@@ -1074,6 +1147,7 @@ func (p *ProgramBuilder) NewVar(kind VariableType) *Variable {
 	return newVariable(Int8Type, math.MaxInt16, RNULL, p)
 }
 
+// NewVarV creates a new variable from a value
 func (p *ProgramBuilder) NewVarV(value interface{}) *Variable {
 	switch v := value.(type) {
 	case int8:
@@ -1103,6 +1177,7 @@ func (p *ProgramBuilder) NewVarV(value interface{}) *Variable {
 	return newVariable(Int8Type, math.MaxInt16, RNULL, p)
 }
 
+// FreeVar frees a variable
 func (p *ProgramBuilder) FreeVar(v *Variable) {
 	p.stackFree(v.addr)
 	p.regAlloc.Free(v.reg)

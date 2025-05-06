@@ -22,12 +22,16 @@ import (
 )
 
 const (
-	REGS_NUM  = 11
+	// REGS_NUM is the number of registers
+	REGS_NUM = 11
+	// REGS_SIZE is the size of the registers
 	REGS_SIZE = REGS_NUM * 8
 )
 
+// Regs is the type for the registers
 type Regs [REGS_NUM]uint64
 
+// Parse parses the registers from a byte slice
 func (r *Regs) Parse(data []byte) error {
 	if len(data) < REGS_SIZE {
 		return errors.New("not enough data")
@@ -42,6 +46,7 @@ func (r *Regs) Parse(data []byte) error {
 	return nil
 }
 
+// Bytes returns the registers as a byte slice
 func (r *Regs) Bytes() []byte {
 	data := make([]byte, REGS_SIZE)
 

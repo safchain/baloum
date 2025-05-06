@@ -27,30 +27,43 @@ import (
 	"github.com/safchain/baloum/pkg/baloum"
 )
 
+// DebugCommand is the type for the debug command
 type DebugCommand string
 
 const (
-	NextCommand           DebugCommand = "n"
-	ContinueCommand       DebugCommand = "c"
-	PrintStackCommand     DebugCommand = "ps"
+	// NextCommand is the command to step to the next instruction
+	NextCommand DebugCommand = "n"
+	// ContinueCommand is the command to continue execution
+	ContinueCommand DebugCommand = "c"
+	// PrintStackCommand is the command to print the stack
+	PrintStackCommand DebugCommand = "ps"
+	// PrintRegistersCommand is the command to print the registers
 	PrintRegistersCommand DebugCommand = "pr"
-	PrintVariableCommand  DebugCommand = "pv"
-	PrintDataCommand      DebugCommand = "pd"
-	PrintMap              DebugCommand = "pm"
-	PrintCommand          DebugCommand = "p"
+	// PrintVariableCommand is the command to print a variable
+	PrintVariableCommand DebugCommand = "pv"
+	// PrintDataCommand is the command to print data
+	PrintDataCommand DebugCommand = "pd"
+	// PrintMap is the command to print a map
+	PrintMap DebugCommand = "pm"
+	// PrintCommand is the command to print the registers and the stack
+	PrintCommand DebugCommand = "p"
+	// PrintBacktraceCommand is the command to print the backtrace
 	PrintBacktraceCommand DebugCommand = "bt"
 )
 
+// VariableReader is the type for the variable reader
 type VariableReader struct {
 	Size uint64
 	Read func(bytes []byte) interface{}
 }
 
+// BTInst is the type for the backtrace instruction
 type BTInst struct {
 	PC   int
 	Inst asm.Instruction
 }
 
+// Debugger is the type for the debugger
 type Debugger struct {
 	Enabled        bool
 	VariableReader map[string]VariableReader
@@ -59,6 +72,7 @@ type Debugger struct {
 	backtrace      []BTInst
 }
 
+// NewDebugger creates a new debugger
 func NewDebugger(enabled bool, variableReaders map[string]VariableReader) *Debugger {
 	return &Debugger{
 		Enabled:        enabled,
@@ -216,12 +230,14 @@ func (d *Debugger) printBacktrace() {
 	}
 }
 
+// Close closes the debugger
 func (d *Debugger) Close() {
 	if d.state != nil {
 		d.state.Close()
 	}
 }
 
+// ObserveInst observes an instruction
 func (d *Debugger) ObserveInst(vm *baloum.VM, pc int, inst *asm.Instruction) {
 	d.backtrace = append(d.backtrace, BTInst{PC: pc, Inst: *inst})
 
@@ -286,8 +302,10 @@ LOOP:
 	}
 }
 
+// SimpleObserver is the type for the simple observer
 type SimpleObserver struct{}
 
+// ObserveInst observes an instruction
 func (d *SimpleObserver) ObserveInst(vm *baloum.VM, pc int, inst *asm.Instruction) {
 	if strings.HasPrefix(inst.Symbol(), "dump-regs") {
 		dumpRegister(vm)

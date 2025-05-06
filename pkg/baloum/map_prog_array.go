@@ -24,6 +24,7 @@ import (
 	"runtime/debug"
 )
 
+// MapProgArrayStorage is the type for the map prog array storage
 type MapProgArrayStorage struct {
 	vm         *VM
 	maxEntries uint32
@@ -32,6 +33,7 @@ type MapProgArrayStorage struct {
 	data []uint64
 }
 
+// Lookup looks up a key in the map
 func (m *MapProgArrayStorage) Lookup(key []byte) (uint64, error) {
 	idx, err := mapArrayKeyIndex(key)
 	if err != nil {
@@ -45,6 +47,7 @@ func (m *MapProgArrayStorage) Lookup(key []byte) (uint64, error) {
 	return m.data[idx], nil
 }
 
+// Update updates a key in the map
 func (m *MapProgArrayStorage) Update(key []byte, value []byte, kind MapUpdateType) (bool, error) {
 	idx, err := mapArrayKeyIndex(key)
 	if err != nil {
@@ -60,22 +63,27 @@ func (m *MapProgArrayStorage) Update(key []byte, value []byte, kind MapUpdateTyp
 	return true, nil
 }
 
+// Delete deletes a key in the map
 func (m *MapProgArrayStorage) Delete(key []byte) (bool, error) {
 	return false, errors.New("operation not supported")
 }
 
+// Keys returns the keys of the map
 func (m *MapProgArrayStorage) Keys() ([][]byte, error) {
 	return nil, errors.New("operation not supported")
 }
 
+// Read reads the map
 func (m *MapProgArrayStorage) Read() (<-chan []byte, error) {
 	return nil, errors.New("operation not supported")
 }
 
+// Write writes to the map
 func (m *MapProgArrayStorage) Write(data []byte) error {
 	return errors.New("operation not supported")
 }
 
+// NewMapProgArrayStorage creates a new map prog array storage
 func NewMapProgArrayStorage(vm *VM, keySize, valueSize, maxEntries, flags uint32) (MapStorage, error) {
 	data := make([]uint64, maxEntries)
 

@@ -25,27 +25,34 @@ import (
 	"github.com/cilium/ebpf/asm"
 )
 
+// SymbolType is the type for the symbol type
 type SymbolType = string
 
 const (
-	JumpSymbolType       SymbolType = "jmp"
+	// JumpSymbolType is the type for the jump symbol
+	JumpSymbolType SymbolType = "jmp"
+	// BreakpointSymbolType is the type for the breakpoint symbol
 	BreakpointSymbolType SymbolType = "breakpoint"
 )
 
 // see : https://docs.kernel.org/bpf/verifier.html?highlight=ebpf%20tc
 
+// Program is the type for the program
 type Program struct {
 	insts asm.Instructions
 }
 
+// Edit returns a new program builder
 func (p *Program) Edit(opts ProgramBuilderOpts) *ProgramBuilder {
 	return NewProgramBuilder(p, opts)
 }
 
+// PrintInstructions prints the instructions
 func (p *Program) PrintInstructions() {
 	fmt.Printf("%+v\n", p.insts)
 }
 
+// Prepare prepares the program
 func (p *Program) Prepare(instLimit int) error {
 	insts := resolveSymbolReferences(p.insts)
 
@@ -80,14 +87,17 @@ func VerifyDag(insts asm.Instructions) error {
 	return nil
 }
 
+// Append appends instructions to the program
 func (p *Program) Append(insts ...interface{}) {
 	p.insts = append(p.insts, Instructions(insts...)...)
 }
 
+// Instructions returns the instructions
 func (p *Program) Instructions() asm.Instructions {
 	return p.insts
 }
 
+// Instructions converts a list of instructions to an asm.Instructions
 func Instructions(insts ...interface{}) asm.Instructions {
 	var instructions asm.Instructions
 	for _, inst := range insts {
