@@ -298,7 +298,10 @@ func (vr *Variable) loadToReg(reg asm.Register) {
 			)
 		}
 	}
-	vr.setReg(reg)
+
+	if isVarReg(reg) {
+		vr.setReg(reg)
+	}
 }
 
 func (vr *Variable) setReg(reg asm.Register) {
@@ -448,11 +451,14 @@ func (p *ProgramBuilder) invalidateReg(reg asm.Register) {
 	}
 }
 
+func (p *ProgramBuilder) invalidateRegs(regs ...asm.Register) {
+	for _, reg := range regs {
+		p.invalidateReg(reg)
+	}
+}
+
 // CallFn calls a function
 func (p *ProgramBuilder) CallFn(fn asm.BuiltinFunc) asm.Instructions {
-	// invalidate R0
-	p.invalidateReg(asm.R0)
-
 	return asm.Instructions{
 		fn.Call(),
 	}
@@ -543,14 +549,16 @@ func (p *ProgramBuilder) stackBytes(bytes []byte) (int16, asm.Instructions) {
 	var instructions asm.Instructions
 
 	var (
-		values []int64
-		value  int64
-		size   int16
-		chars  []int64
+		values []uint64
+		value  uint64
+		size   uint16
+		chars  []uint64
 	)
 
+	const sizeOfInt = 8
+
 	for _, c := range bytes {
-		chars = append(chars, int64(c))
+		chars = append(chars, uint64(c))
 	}
 	chars = append(chars, 0) // 0
 
@@ -558,7 +566,7 @@ func (p *ProgramBuilder) stackBytes(bytes []byte) (int16, asm.Instructions) {
 		value = value | c<<(size*8)
 		size++
 
-		if size == 8 {
+		if size == sizeOfInt {
 			values = append(values, value)
 			value, size = 0, 0
 		}
@@ -568,7 +576,14 @@ func (p *ProgramBuilder) stackBytes(bytes []byte) (int16, asm.Instructions) {
 		values = append(values, value)
 	}
 
-	addr := p.stackAlloc(int16(len(values) * 8))
+	// \0 padding for the last value
+	if value <= math.MaxUint32 && value&(0xFF<<24) > 0 {
+		values = append(values, 0)
+	} else if value&(0xFF<<56) > 0 {
+		values = append(values, 0)
+	}
+
+	addr := p.stackAlloc(int16(len(values) * sizeOfInt))
 
 	ptr := addr
 	for _, value := range values {
@@ -585,11 +600,11 @@ func (p *ProgramBuilder) stackBytes(bytes []byte) (int16, asm.Instructions) {
 			)
 		default:
 			instructions = append(instructions,
-				asm.LoadImm(asm.R2, value, asm.DWord),
+				asm.LoadImm(asm.R2, int64(value), asm.DWord),
 				asm.StoreMem(asm.RFP, ptr, asm.R2, asm.DWord),
 			)
 		}
-		ptr += 8
+		ptr += sizeOfInt
 	}
 
 	return addr, instructions
@@ -610,12 +625,12 @@ func (p *ProgramBuilder) Printk(format string, args ...interface{}) {
 		args = args[0:3]
 	}
 
+	// be sure that R0, R1 are not used by a ctx variable
+	p.invalidateRegs(asm.R0, asm.R1)
+
 	// format
 	addr, insts := p.stackBytes([]byte(format))
 	p.insts = append(p.insts, insts...)
-
-	// be sure that R1 is not used by a ctx variable
-	p.invalidateReg(asm.R1)
 
 	p.insts = append(p.insts,
 		asm.Mov.Reg(asm.R1, asm.RFP),
@@ -1026,6 +1041,10 @@ func (p *ProgramBuilder) IfThenElse(cond Condition, then func(), els func()) {
 		falseSym = elseSym
 	}
 
+	// first invalidate R0
+	p.invalidateReg(asm.R0)
+
+	// insert condition instructions
 	cond(trueSym, falseSym)
 
 	p.updateLastInstSymbol(trueSym)
@@ -1190,7 +1209,7 @@ func (p *ProgramBuilder) FreeVar(v *Variable) {
 	p.stackFree(v.addr)
 	p.regAlloc.Free(v.reg)
 
-	slices.DeleteFunc(p.variables, func(o *Variable) bool {
+	p.variables = slices.DeleteFunc(p.variables, func(o *Variable) bool {
 		return v == o
 	})
 }
