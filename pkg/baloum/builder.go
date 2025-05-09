@@ -17,6 +17,7 @@ limitations under the License.
 package baloum
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"math"
@@ -25,6 +26,11 @@ import (
 
 	"github.com/cilium/ebpf/asm"
 	"golang.org/x/exp/slices"
+)
+
+const (
+	// STACK_ALIGN is the stack alignment
+	STACK_ALIGN = asm.DWord
 )
 
 // BuilderError is the type for the builder error
@@ -119,8 +125,7 @@ func (r *RegisterAllocator) Free(regs ...asm.Register) {
 	}
 }
 
-// NewRegisterAllocator creates a new register allocator
-func NewRegisterAllocator(onExausted func()) *RegisterAllocator {
+func newRegisterAllocator(onExausted func()) *RegisterAllocator {
 	r := RegisterAllocator{
 		onExausted: onExausted,
 	}
@@ -154,11 +159,13 @@ const (
 	UInt64Type
 	// PtrType is the type for the pointer variable
 	PtrType
+	// CtxType is the type for the context variable
+	CtxType
 )
 
 // IsPtr checks if a variable is a pointer
 func (vt VariableType) IsPtr() bool {
-	return vt == PtrType
+	return vt == PtrType || vt == CtxType
 }
 
 // AsmSizeof returns the size of the variable in bytes
@@ -206,6 +213,11 @@ func newVariable(kind VariableType, addr int16, reg asm.Register, pb *ProgramBui
 // IsPtr checks if a variable is a pointer
 func (vr *Variable) IsPtr() bool {
 	return vr.Type.IsPtr()
+}
+
+// IsCtx checks if a variable is a context variable
+func (vr *Variable) IsCtx() bool {
+	return vr.Type == CtxType
 }
 
 // AsmSizeof returns the size of the variable in bytes
@@ -374,7 +386,7 @@ func NewProgramBuilder(p *Program, opts ProgramBuilderOpts) *ProgramBuilder {
 		opts:    opts,
 	}
 
-	pb.regAlloc = NewRegisterAllocator(pb.onRegExausted)
+	pb.regAlloc = newRegisterAllocator(pb.onRegExausted)
 
 	return pb
 }
@@ -458,9 +470,14 @@ func (p *ProgramBuilder) invalidateRegs(regs ...asm.Register) {
 }
 
 // CallFn calls a function
-func (p *ProgramBuilder) CallFn(fn asm.BuiltinFunc) asm.Instructions {
+func (p *ProgramBuilder) CallFn(fn asm.BuiltinFunc, symbol ...string) asm.Instructions {
+	inst := fn.Call()
+	if len(symbol) > 0 {
+		inst = inst.WithSymbol(symbol[0])
+	}
+
 	return asm.Instructions{
-		fn.Call(),
+		inst,
 	}
 }
 
@@ -482,6 +499,13 @@ func (p *ProgramBuilder) Commit() error {
 }
 
 func (p *ProgramBuilder) stackAlloc(size int16) int16 {
+	alignSizeOf := int16(STACK_ALIGN.Sizeof())
+
+	// 32bit alignment
+	if size%alignSizeOf != 0 {
+		size += alignSizeOf - size%alignSizeOf
+	}
+
 	var lastAddr int16
 	for i, block := range p.blocks {
 		if !block.inuse && block.size >= size {
@@ -546,68 +570,49 @@ func (p *ProgramBuilder) stackFree(addr int16) {
 }
 
 func (p *ProgramBuilder) stackBytes(bytes []byte) (int16, asm.Instructions) {
-	var instructions asm.Instructions
+	var insts asm.Instructions
 
-	var (
-		values []uint64
-		value  uint64
-		size   uint16
-		chars  []uint64
-	)
-
-	const sizeOfInt = 8
-
-	for _, c := range bytes {
-		chars = append(chars, uint64(c))
-	}
-	chars = append(chars, 0) // 0
-
-	for _, c := range chars {
-		value = value | c<<(size*8)
-		size++
-
-		if size == sizeOfInt {
-			values = append(values, value)
-			value, size = 0, 0
-		}
-	}
-
-	if size != 0 {
-		values = append(values, value)
-	}
-
-	// \0 padding for the last value
-	if value <= math.MaxUint32 && value&(0xFF<<24) > 0 {
-		values = append(values, 0)
-	} else if value&(0xFF<<56) > 0 {
-		values = append(values, 0)
-	}
-
-	addr := p.stackAlloc(int16(len(values) * sizeOfInt))
-
+	addr := p.stackAlloc(int16(len(bytes)))
 	ptr := addr
-	for _, value := range values {
-		switch {
-		case value <= math.MaxUint16:
-			instructions = append(instructions,
+
+	for len(bytes) > 0 {
+		switch l := len(bytes); {
+		case l <= 1:
+			value := int32(bytes[0])
+			insts = append(insts,
+				asm.Mov.Imm(asm.R2, int32(value)),
+				asm.StoreMem(asm.RFP, ptr, asm.R2, asm.Byte),
+			)
+			ptr += int16(asm.Byte.Sizeof())
+			bytes = bytes[1:]
+		case l >= 2 && l < 4:
+			value := int32(binary.NativeEndian.Uint16(bytes[0:2]))
+			insts = append(insts,
 				asm.Mov.Imm(asm.R2, int32(value)),
 				asm.StoreMem(asm.RFP, ptr, asm.R2, asm.Half),
 			)
-		case value <= math.MaxUint32:
-			instructions = append(instructions,
+			ptr += int16(asm.Half.Sizeof())
+			bytes = bytes[2:]
+		case l >= 4 && l < 8:
+			value := binary.NativeEndian.Uint32(bytes[0:4])
+			insts = append(insts,
 				asm.Mov.Imm(asm.R2, int32(value)),
 				asm.StoreMem(asm.RFP, ptr, asm.R2, asm.Word),
 			)
+			ptr += int16(asm.Word.Sizeof())
+			bytes = bytes[4:]
 		default:
-			instructions = append(instructions,
+			value := uint64(binary.NativeEndian.Uint64(bytes[0:8]))
+			insts = append(insts,
 				asm.LoadImm(asm.R2, int64(value), asm.DWord),
 				asm.StoreMem(asm.RFP, ptr, asm.R2, asm.DWord),
 			)
+			ptr += int16(asm.DWord.Sizeof())
+			bytes = bytes[8:]
 		}
-		ptr += sizeOfInt
 	}
 
-	return addr, instructions
+	return addr, insts
 }
 
 // Return returns a value from a function
@@ -629,7 +634,7 @@ func (p *ProgramBuilder) Printk(format string, args ...interface{}) {
 	p.invalidateRegs(asm.R0, asm.R1)
 
 	// format
-	addr, insts := p.stackBytes([]byte(format))
+	addr, insts := p.stackBytes(Str2Bytes(format))
 	p.insts = append(p.insts, insts...)
 
 	p.insts = append(p.insts,
@@ -1065,7 +1070,7 @@ func (p *ProgramBuilder) IfThenElse(cond Condition, then func(), els func()) {
 
 func (p *ProgramBuilder) onRegExausted() {
 	for _, vr := range p.variables {
-		if vr.inReg() && isVarReg(vr.reg) {
+		if vr.inReg() && isVarReg(vr.reg) && !vr.IsCtx() {
 			vr.persist()
 			return
 		}
@@ -1140,7 +1145,7 @@ func (p *ProgramBuilder) NewCtxVar() *Variable {
 	// be sure that R1 is not used by another ctx variable
 	p.invalidateReg(asm.R1)
 
-	variable := newVariable(PtrType, math.MaxInt16, asm.R1, p)
+	variable := newVariable(CtxType, math.MaxInt16, asm.R1, p)
 
 	p.variables = append(p.variables, variable)
 

@@ -40,6 +40,14 @@ func TestBuilderStack(t *testing.T) {
 		assert.Equal(t, int16(-512), addr)
 	})
 
+	t.Run("success2", func(t *testing.T) {
+		builder := NewProgramBuilder(nil, ProgramBuilderOpts{})
+
+		addr := builder.stackAlloc(511)
+		assert.Nil(t, builder.Error())
+		assert.Equal(t, int16(-512), addr)
+	})
+
 	t.Run("full-one-block", func(t *testing.T) {
 		builder := NewProgramBuilder(nil, ProgramBuilderOpts{})
 
@@ -363,7 +371,29 @@ func runProg(t *testing.T, prog *Program, pre func(vm *VM), post func(vm *VM, ou
 }
 
 func TestBuilderPrintk(t *testing.T) {
-	t.Run("printk", func(t *testing.T) {
+	t.Run("printk-size", func(t *testing.T) {
+		var str = ""
+
+		// loop between 0 and 50
+		for i := 0; i < 50; i++ {
+			str += "a"
+
+			var prog Program
+			builder := prog.Edit(ProgramBuilderOpts{})
+
+			builder.Printk(str)
+			builder.Return(0)
+
+			err := builder.Commit()
+			require.Nil(t, err)
+
+			runProg(t, &prog, nil, func(_ *VM, output string) {
+				assert.Equal(t, str, output)
+			})
+		}
+	})
+
+	t.Run("printk-var", func(t *testing.T) {
 		var prog Program
 		builder := prog.Edit(ProgramBuilderOpts{})
 

@@ -25,6 +25,12 @@ import (
 )
 
 // ToBytes converts an object to a byte slice
+func Str2Bytes(str string) []byte {
+	b := make([]byte, len(str)+1) // \0
+	copy(b, []byte(str))
+	return b
+}
+// ToBytes converts an object to a byte slice
 func ToBytes(obj interface{}, size int) ([]byte, error) {
 	if size == 0 {
 		return nil, errors.New("data size error")
