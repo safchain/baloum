@@ -79,7 +79,7 @@ func VerifyDag(insts asm.Instructions) error {
 		}
 		offsets = append(offsets, i)
 
-		if inst.OpCode == asm.Ja.Op(asm.ImmSource) {
+		if inst.OpCode.Class().IsJump() {
 			i += int(inst.Offset)
 		}
 	}
