@@ -1,6 +1,8 @@
 module github.com/safchain/baloum
 
-go 1.18
+go 1.21
+
+toolchain go1.21.5
 
 require (
 	github.com/cilium/ebpf v0.9.3

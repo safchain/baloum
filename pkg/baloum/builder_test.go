@@ -410,7 +410,25 @@ func TestBuilderPrintk(t *testing.T) {
 			assert.Equal(t, "this is a printk test, values: 55 88 test", output)
 		})
 	})
+}
 
+func TestBuilderPersist(t *testing.T) {
+	t.Run("std", func(t *testing.T) {
+		var prog Program
+		builder := prog.Edit(ProgramBuilderOpts{})
+
+		var1 := builder.NewVarV("aaa")
+
+		builder.Printk("value: %s", var1)
+		builder.Return(0)
+
+		err := builder.Commit()
+		require.Nil(t, err)
+
+		runProg(t, &prog, nil, func(_ *VM, output string) {
+			assert.Equal(t, "value: aaa", output)
+		})
+	})
 }
 
 func TestBuilderCond(t *testing.T) {
@@ -1233,6 +1251,169 @@ func TestBuilderStrCmp(t *testing.T) {
 	})
 }
 
+func TestBuilderStrContains(t *testing.T) {
+	t.Run("strcontains-static-ok1", func(t *testing.T) {
+		var prog Program
+		builder := prog.Edit(ProgramBuilderOpts{})
+
+		var1 := builder.NewVarV("azerty")
+
+		builder.IfThenElse(
+			builder.StrStaticContains(var1, "zer", 10, nil),
+			func() {
+				builder.Printk("ok")
+			},
+			func() {
+				builder.Printk("ko")
+			},
+		)
+		builder.Return(0)
+
+		err := builder.Commit()
+		require.Nil(t, err)
+
+		runProg(t, &prog, nil, func(_ *VM, output string) {
+			assert.Equal(t, "ok", output)
+		})
+	})
+
+	t.Run("strcontains-static-ok2", func(t *testing.T) {
+		var prog Program
+		builder := prog.Edit(ProgramBuilderOpts{})
+
+		var1 := builder.NewVarV("azerty")
+
+		builder.IfThenElse(
+			builder.StrStaticContains(var1, "rty", 10, nil),
+			func() {
+				builder.Printk("ok")
+			},
+			func() {
+				builder.Printk("ko")
+			},
+		)
+		builder.Return(0)
+
+		err := builder.Commit()
+		require.Nil(t, err)
+
+		runProg(t, &prog, nil, func(_ *VM, output string) {
+			assert.Equal(t, "ok", output)
+		})
+	})
+
+	t.Run("strcontains-static-ko1", func(t *testing.T) {
+		var prog Program
+		builder := prog.Edit(ProgramBuilderOpts{})
+
+		var1 := builder.NewVarV("azerty")
+
+		builder.IfThenElse(
+			builder.StrStaticContains(var1, "zee", 10, nil),
+			func() {
+				builder.Printk("ok")
+			},
+			func() {
+				builder.Printk("ko")
+			},
+		)
+		builder.Return(0)
+
+		err := builder.Commit()
+		require.Nil(t, err)
+
+		runProg(t, &prog, nil, func(_ *VM, output string) {
+			assert.Equal(t, "ko", output)
+		})
+	})
+
+	t.Run("strcontains-static-ko2", func(t *testing.T) {
+		var prog Program
+		builder := prog.Edit(ProgramBuilderOpts{})
+
+		var1 := builder.NewVarV("aaaaaaaaaaaaaaaaaaaaaaazerty")
+
+		builder.IfThenElse(
+			builder.StrStaticContains(var1, "zer", 10, nil),
+			func() {
+				builder.Printk("ok")
+			},
+			func() {
+				builder.Printk("ko")
+			},
+		)
+
+		builder.Return(0)
+
+		err := builder.Commit()
+		require.Nil(t, err)
+
+		runProg(t, &prog, nil, func(_ *VM, output string) {
+			assert.Equal(t, "ko", output)
+		})
+	})
+
+	t.Run("strcontains-static-ok3", func(t *testing.T) {
+		var prog Program
+		builder := prog.Edit(ProgramBuilderOpts{})
+
+		var1 := builder.NewVarV("aaaaaaaaaaaaaaaaaaaaaaazerty")
+		var2 := builder.NewVarV(uint8(0))
+
+		builder.IfThen(
+			builder.StrStaticContains(var1, "zer", 10, var2),
+			func() {
+				builder.Printk("ok")
+			},
+		)
+
+		builder.IfThen(builder.Equal(var2, 0),
+			func() {
+				builder.Printk("ok")
+			},
+		)
+
+		builder.Return(0)
+
+		err := builder.Commit()
+		require.Nil(t, err)
+
+		runProg(t, &prog, nil, func(_ *VM, output string) {
+			assert.Equal(t, "ok", output)
+		})
+	})
+
+	t.Run("strcontains-static-ko3", func(t *testing.T) {
+		var prog Program
+		builder := prog.Edit(ProgramBuilderOpts{})
+
+		var1 := builder.NewVarV("aaaaaaaaaaaaaaaaaaaaaaazerty")
+		var2 := builder.NewVarV(uint8(0))
+
+		builder.IfThen(
+			builder.StrStaticContains(var1, "zer", 10, var2),
+			func() {
+				builder.Printk("ok")
+			},
+		)
+
+		builder.IfThen(builder.Equal(var2, 0),
+			func() {
+				builder.Printk("ko")
+			},
+		)
+
+		builder.Return(0)
+
+		err := builder.Commit()
+		require.Nil(t, err)
+
+		runProg(t, &prog, nil, func(_ *VM, output string) {
+			assert.Equal(t, "ko", output)
+		})
+	})
+}
+
 func TestBuilderMap(t *testing.T) {
 	t.Run("map-lookup", func(t *testing.T) {
 		var prog Program
@@ -1328,6 +1509,58 @@ func TestBuilderMap(t *testing.T) {
 		runProg(t, &prog, func(vm *VM) {
 		}, func(vm *VM, output string) {
 			assert.Equal(t, "value: 66", output)
+
+			data, err := vm.Map("map_hash").LookupBytes(uint32(2))
+			assert.NoError(t, err)
+			assert.Nil(t, data)
+		})
+	})
+
+	t.Run("map-deref", func(t *testing.T) {
+		var prog Program
+		builder := prog.Edit(ProgramBuilderOpts{})
+
+		key := builder.NewVarV(uint32(2))
+		value := builder.NewVarV(uint32(2))
+		ret := builder.NewVarV(int32(-1))
+
+		builder.MapUpdate("map_hash", key, value, ret, BPF_ANY)
+		builder.IfThenElse(builder.NotEqual(ret, uint32(0)),
+			func() {
+				builder.Return(0)
+			}, nil)
+
+		valuePtr := builder.NewPtrVar()
+		builder.MapLookup("map_hash", key, valuePtr)
+		builder.IfThenElse(builder.IsNull(valuePtr), func() {
+			builder.Return(0)
+		}, nil)
+
+		key = valuePtr.Deref(UInt32Type, 0)
+
+		builder.Printk("valuePtr: %d", valuePtr.Deref(UInt32Type, 0))
+
+		builder.MapLookup("map_hash", key, valuePtr)
+		builder.IfThenElse(builder.IsNull(valuePtr), func() {
+			builder.Return(0)
+		}, nil)
+
+		builder.Printk("value: %d", valuePtr.Deref(UInt32Type, 0))
+
+		builder.MapDelete("map_hash", key, ret)
+		builder.IfThenElse(builder.NotEqual(ret, uint32(0)),
+			func() {
+				builder.Return(0)
+			}, nil)
+
+		builder.Return(0)
+
+		err := builder.Commit()
+		require.Nil(t, err)
+
+		runProg(t, &prog, func(vm *VM) {
+		}, func(vm *VM, output string) {
+			assert.Equal(t, "value: 2", output)
 
 			data, err := vm.Map("map_hash").LookupBytes(uint32(2))
 			assert.NoError(t, err)
@@ -1442,7 +1675,7 @@ func TestBuilderStrIn(t *testing.T) {
 			builder.Return(0)
 		}, nil)
 
-		builder.IfThenElse(builder.StrIn(valuePtr, "aaa", "bbb", "abcdef"), func() {
+		builder.IfThenElse(builder.StrStaticIn(valuePtr, "aaa", "bbb", "abcdef"), func() {
 			builder.Printk("ok")
 		}, nil)
 
@@ -1477,7 +1710,7 @@ func TestBuilderStrIn(t *testing.T) {
 			builder.Return(0)
 		}, nil)
 
-		builder.IfThenElse(builder.StrIn(valuePtr, "aaa", "bbb", "ccc"), func() {
+		builder.IfThenElse(builder.StrStaticIn(valuePtr, "aaa", "bbb", "ccc"), func() {
 			builder.Printk("ok")
 			builder.Return(0)
 		}, nil)
@@ -1514,7 +1747,7 @@ func TestBuilderStrIn(t *testing.T) {
 			builder.Return(0)
 		}, nil)
 
-		builder.IfThenElse(builder.Not(builder.StrIn(valuePtr, "aaa", "bbb", "abcdef")), func() {
+		builder.IfThenElse(builder.Not(builder.StrStaticIn(valuePtr, "aaa", "bbb", "abcdef")), func() {
 			builder.Printk("ko")
 		}, func() {
 			builder.Printk("ok")

@@ -120,7 +120,7 @@ func (r *RegisterAllocator) Alloc2() (asm.Register, asm.Register, error) {
 func (r *RegisterAllocator) Free(regs ...asm.Register) {
 	for _, reg := range regs {
 		if isVarReg(reg) && reg != RNULL {
-			r.available = append([]asm.Register{reg}, r.available...)
+			r.available = append(r.available, reg)
 		}
 	}
 }
@@ -179,7 +179,7 @@ func (vt VariableType) AsmSizeof() asm.Size {
 		return asm.Word
 	case Int64Type, UInt64Type:
 		return asm.DWord
-	case PtrType:
+	case PtrType, CtxType:
 		return asm.DWord
 	}
 	return asm.InvalidSize
@@ -241,9 +241,9 @@ func (vr *Variable) Deref(vt VariableType, offset int) *Variable {
 		vr.pb.setError("invalid variable type")
 	}
 
-	vr.load()
-
 	derefVar, reg := vr.pb.newVarReg(vt)
+
+	vr.load()
 
 	vr.pb.insts = append(vr.pb.insts,
 		asm.LoadMem(reg, vr.reg, int16(offset), derefVar.AsmSizeof()),
@@ -265,13 +265,25 @@ func (vr *Variable) Add(offset int) *Variable {
 	return newVar
 }
 
-func (vr *Variable) ptrReg(reg asm.Register) {
-	vr.persist()
-
-	vr.pb.insts = append(vr.pb.insts, asm.Instructions{
-		asm.Mov.Reg(reg, asm.RFP),
-		asm.Add.Imm(reg, int32(vr.addr)),
-	}...)
+func (vr *Variable) toPtrReg(reg asm.Register) {
+	if vr.IsPtr() {
+		if !vr.inReg() {
+			vr.pb.insts = append(vr.pb.insts,
+				asm.Mov.Reg(reg, asm.RFP),
+				asm.Add.Imm(reg, int32(vr.addr)),
+			)
+		} else if vr.reg != reg {
+			vr.pb.insts = append(vr.pb.insts, asm.Instructions{
+				asm.Mov.Reg(reg, vr.reg),
+			}...)
+		}
+	} else {
+		vr.persist()
+		vr.pb.insts = append(vr.pb.insts, asm.Instructions{
+			asm.Mov.Reg(reg, asm.RFP),
+			asm.Add.Imm(reg, int32(vr.addr)),
+		}...)
+	}
 }
 
 func (vr *Variable) load() asm.Register {
@@ -285,6 +297,15 @@ func (vr *Variable) load() asm.Register {
 	}
 
 	vr.loadToReg(regVal)
+
+	// move variable to the end of the list in order to avoid having the register being reused
+	for i, v := range vr.pb.variables {
+		if v == vr {
+			vr.pb.variables = append(vr.pb.variables[0:i], vr.pb.variables[i+1:]...)
+			vr.pb.variables = append(vr.pb.variables, vr)
+			break
+		}
+	}
 
 	return regVal
 }
@@ -375,6 +396,7 @@ type ProgramBuilder struct {
 	regAlloc  *RegisterAllocator
 	err       error
 	variables []*Variable
+	sourceCtx *sourceContext
 }
 
 // NewProgramBuilder creates a new program builder
@@ -391,9 +413,23 @@ func NewProgramBuilder(p *Program, opts ProgramBuilderOpts) *ProgramBuilder {
 	return pb
 }
 
+func (p *ProgramBuilder) setSourceCtx(fn string, args ...interface{}) {
+	if p.sourceCtx == nil {
+		p.sourceCtx = newsourceContext(fn, args...)
+	}
+}
+
 // Error returns the error
 func (p *ProgramBuilder) Error() error {
 	return p.err
+}
+
+func (p *ProgramBuilder) appendInsts(insts asm.Instructions, newInsts ...asm.Instruction) asm.Instructions {
+	if p.sourceCtx != nil {
+		newInsts[0] = newInsts[0].WithSource(p.sourceCtx)
+		p.sourceCtx = nil
+	}
+	return append(insts, newInsts...)
 }
 
 func (p *ProgramBuilder) setError(arg1 interface{}, args ...interface{}) {
@@ -451,7 +487,7 @@ func (p *ProgramBuilder) invalidateReg(reg asm.Register) {
 			}
 
 			if targetReg != reg {
-				p.insts = append(p.insts,
+				p.insts = p.appendInsts(p.insts,
 					asm.Mov.Reg(targetReg, reg),
 				)
 
@@ -493,7 +529,7 @@ func (p *ProgramBuilder) Commit() error {
 
 	p.insts = deadCodeElimination(p.insts)
 
-	p.program.insts = append(p.program.insts, p.insts...)
+	p.program.insts = p.appendInsts(p.program.insts, p.insts...)
 
 	return p.err
 }
@@ -579,7 +615,7 @@ func (p *ProgramBuilder) stackBytes(bytes []byte) (int16, asm.Instructions) {
 		switch l := len(bytes); {
 		case l <= 1:
 			value := int32(bytes[0])
-			insts = append(insts,
+			insts = p.appendInsts(insts,
 				asm.Mov.Imm(asm.R2, int32(value)),
 				asm.StoreMem(asm.RFP, ptr, asm.R2, asm.Byte),
 			)
@@ -587,7 +623,7 @@ func (p *ProgramBuilder) stackBytes(bytes []byte) (int16, asm.Instructions) {
 			bytes = bytes[1:]
 		case l >= 2 && l < 4:
 			value := int32(binary.NativeEndian.Uint16(bytes[0:2]))
-			insts = append(insts,
+			insts = p.appendInsts(insts,
 				asm.Mov.Imm(asm.R2, int32(value)),
 				asm.StoreMem(asm.RFP, ptr, asm.R2, asm.Half),
 			)
@@ -595,7 +631,7 @@ func (p *ProgramBuilder) stackBytes(bytes []byte) (int16, asm.Instructions) {
 			bytes = bytes[2:]
 		case l >= 4 && l < 8:
 			value := binary.NativeEndian.Uint32(bytes[0:4])
-			insts = append(insts,
+			insts = p.appendInsts(insts,
 				asm.Mov.Imm(asm.R2, int32(value)),
 				asm.StoreMem(asm.RFP, ptr, asm.R2, asm.Word),
 			)
@@ -603,7 +639,7 @@ func (p *ProgramBuilder) stackBytes(bytes []byte) (int16, asm.Instructions) {
 			bytes = bytes[4:]
 		default:
 			value := uint64(binary.NativeEndian.Uint64(bytes[0:8]))
-			insts = append(insts,
+			insts = p.appendInsts(insts,
 				asm.LoadImm(asm.R2, int64(value), asm.DWord),
 				asm.StoreMem(asm.RFP, ptr, asm.R2, asm.DWord),
 			)
@@ -617,10 +653,43 @@ func (p *ProgramBuilder) stackBytes(bytes []byte) (int16, asm.Instructions) {
 
 // Return returns a value from a function
 func (p *ProgramBuilder) Return(code int) {
-	p.insts = append(p.insts,
+	p.insts = p.appendInsts(p.insts,
 		asm.Mov.Imm(asm.R0, int32(code)),
 		asm.Return(),
 	)
+}
+
+type sourceContext struct {
+	fn   string
+	args []interface{}
+	file string
+	line int
+}
+
+func (s *sourceContext) String() string {
+	var args string
+	for i, arg := range s.args {
+		switch arg.(type) {
+		case string:
+			arg = `"` + arg.(string) + `"`
+		}
+
+		if i > 0 {
+			args += fmt.Sprintf(", %+v", arg)
+		} else {
+			args = fmt.Sprintf("%+v", arg)
+		}
+	}
+
+	return fmt.Sprintf("%s(%s) : %s:%d", s.fn, args, s.file, s.line)
+}
+
+func newsourceContext(fn string, args ...interface{}) *sourceContext {
+	_, file, line, ok := runtime.Caller(2)
+	if ok {
+		return &sourceContext{fn: fn, args: args, file: file, line: line}
+	}
+	return nil
 }
 
 // Printk prints a formatted string
@@ -635,9 +704,10 @@ func (p *ProgramBuilder) Printk(format string, args ...interface{}) {
 
 	// format
 	addr, insts := p.stackBytes(Str2Bytes(format))
-	p.insts = append(p.insts, insts...)
 
-	p.insts = append(p.insts,
+	p.insts = p.appendInsts(p.insts, insts...)
+
+	p.insts = p.appendInsts(p.insts,
 		asm.Mov.Reg(asm.R1, asm.RFP),
 		asm.Add.Imm(asm.R1, int32(addr)),
 		asm.Mov.Imm(asm.R2, int32(len(format)+1)),
@@ -653,7 +723,7 @@ func (p *ProgramBuilder) Printk(format string, args ...interface{}) {
 			if v, err := ToInt32(arg); err == nil {
 				return fmt.Errorf("unknown argument type %v", arg)
 			} else {
-				p.insts = append(p.insts,
+				p.insts = p.appendInsts(p.insts,
 					asm.Mov.Imm(reg, v),
 				)
 			}
@@ -669,7 +739,7 @@ func (p *ProgramBuilder) Printk(format string, args ...interface{}) {
 		}
 	}
 
-	p.insts = append(p.insts,
+	p.insts = p.appendInsts(p.insts,
 		p.CallFn(asm.FnTracePrintk)...,
 	)
 
@@ -697,15 +767,88 @@ func (p *ProgramBuilder) StrStaticCmp(var1 *Variable, str string) Condition {
 		}
 
 		for i := int16(0); i != size; i++ {
-			p.insts = append(p.insts,
+			p.insts = p.appendInsts(p.insts,
 				asm.LoadMem(regVal, regPtr, i, asm.Byte),
 				asm.JNE.Imm(regVal, int32(str[i]), falseSym),
 			)
 		}
 
-		p.insts = append(p.insts,
+		p.insts = p.appendInsts(p.insts,
 			asm.LoadMem(regVal, regPtr, size, asm.Byte),
 			asm.JEq.Imm(regVal, 0, trueSym),
+			asm.Ja.Label(falseSym),
+		)
+	}
+}
+
+func (p *ProgramBuilder) StrStaticContains(var1 *Variable, str string, unroll int, overflow *Variable) Condition {
+	return func(trueSym, falseSym string) {
+		if !var1.IsPtr() {
+			p.setError("invalid argument 1 type")
+		}
+
+		if overflow != nil && (overflow.IsPtr() || overflow.IsCtx()) {
+			p.setError("invalid overflow type")
+		}
+
+		var (
+			regPtr = var1.load()
+			regVal asm.Register
+			err    error
+		)
+		defer p.regAlloc.Free(regVal)
+
+		if regVal, err = p.regAlloc.Alloc(); err != nil {
+			p.setError(err)
+		}
+
+		if str == "" {
+			p.insts = p.appendInsts(p.insts,
+				asm.Ja.Label(trueSym),
+			)
+			return
+		}
+
+		symbolFnc := func(i int16) string {
+			return fmt.Sprintf("str-contains-next-%d", i)
+		}
+
+		end := int16(unroll - len(str))
+
+		for i := int16(0); i != end; i++ {
+			for j := int16(0); j != int16(len(str)); j++ {
+				var symbol string
+				if j == 0 {
+					symbol = symbolFnc(i)
+				}
+
+				nextSymbol := symbolFnc(i + 1)
+				if i >= end-1 {
+					nextSymbol = falseSym
+				}
+
+				p.insts = p.appendInsts(p.insts,
+					asm.LoadMem(regVal, regPtr, i+j, asm.Byte).WithSymbol(symbol),
+					asm.JNE.Imm(regVal, int32(str[j]), nextSymbol),
+					asm.JEq.Imm(regVal, 0, falseSym),
+				)
+
+				if j == int16(len(str))-1 {
+					p.insts = p.appendInsts(p.insts,
+						asm.Ja.Label(trueSym),
+					)
+				}
+			}
+		}
+
+		if overflow != nil {
+			reg := overflow.load()
+			p.insts = p.appendInsts(p.insts,
+				asm.LoadImm(reg, 1, asm.Byte),
+			)
+		}
+
+		p.insts = p.appendInsts(p.insts,
 			asm.Ja.Label(falseSym),
 		)
 	}
@@ -740,7 +883,7 @@ func (p *ProgramBuilder) StrCmp(var1 *Variable, var2 *Variable, unroll int) Cond
 				break
 			}
 
-			p.insts = append(p.insts,
+			p.insts = p.appendInsts(p.insts,
 				asm.LoadMem(regVal1, regPtr1, int16(i), asm.Byte),
 				asm.LoadMem(regVal2, regPtr2, int16(i), asm.Byte),
 				asm.JNE.Reg(regVal1, regVal2, falseSym),
@@ -751,14 +894,14 @@ func (p *ProgramBuilder) StrCmp(var1 *Variable, var2 *Variable, unroll int) Cond
 			addr2++
 		}
 
-		p.insts = append(p.insts,
+		p.insts = p.appendInsts(p.insts,
 			asm.Ja.Label(falseSym),
 		)
 	}
 }
 
 // StrIn checks if a variable is in a list of static strings
-func (p *ProgramBuilder) StrIn(var1 *Variable, strs ...string) Condition {
+func (p *ProgramBuilder) StrStaticIn(var1 *Variable, strs ...string) Condition {
 	var conds []Condition
 	for _, str := range strs {
 		conds = append(conds, p.StrStaticCmp(var1, str))
@@ -769,7 +912,7 @@ func (p *ProgramBuilder) StrIn(var1 *Variable, strs ...string) Condition {
 // True returns a condition that always returns true
 func (p *ProgramBuilder) True() Condition {
 	return func(trueSym, falseSym string) {
-		p.insts = append(p.insts,
+		p.insts = p.appendInsts(p.insts,
 			asm.Ja.Label(trueSym),
 		)
 	}
@@ -778,7 +921,7 @@ func (p *ProgramBuilder) True() Condition {
 // False returns a condition that always returns false
 func (p *ProgramBuilder) False() Condition {
 	return func(trueSym, falseSym string) {
-		p.insts = append(p.insts,
+		p.insts = p.appendInsts(p.insts,
 			asm.Ja.Label(falseSym),
 		)
 	}
@@ -878,7 +1021,7 @@ func (p *ProgramBuilder) cmp(var1 *Variable, var2 interface{}, cmpOp asm.JumpOp)
 		case *Variable:
 			regVal2 = v2.load()
 
-			p.insts = append(p.insts,
+			p.insts = p.appendInsts(p.insts,
 				cmpOp.Reg(regVal1, regVal2, trueSym),
 				asm.Ja.Label(falseSym),
 			)
@@ -888,7 +1031,7 @@ func (p *ProgramBuilder) cmp(var1 *Variable, var2 interface{}, cmpOp asm.JumpOp)
 				p.setError(err)
 			}
 
-			p.insts = append(p.insts,
+			p.insts = p.appendInsts(p.insts,
 				cmpOp.Imm(regVal1, val2, trueSym),
 				asm.Ja.Label(falseSym),
 			)
@@ -904,7 +1047,7 @@ func (p *ProgramBuilder) cmp(var1 *Variable, var2 interface{}, cmpOp asm.JumpOp)
 			}
 			defer p.regAlloc.Free(regVal2)
 
-			p.insts = append(p.insts,
+			p.insts = p.appendInsts(p.insts,
 				asm.LoadImm(regVal2, val2, asm.DWord),
 				cmpOp.Reg(regVal1, regVal2, trueSym),
 				asm.Ja.Label(falseSym),
@@ -916,6 +1059,8 @@ func (p *ProgramBuilder) cmp(var1 *Variable, var2 interface{}, cmpOp asm.JumpOp)
 }
 
 func (p *ProgramBuilder) tailCall(ctx *Variable, mapName string, fd int, value interface{}, ret *Variable) {
+	p.setSourceCtx("TailCall", ctx, mapName, fd, value, ret)
+
 	// be sure that R1 is not used by a ctx variable
 	if v := p.varByReg(asm.R1); v != nil && v != ctx {
 		p.invalidateReg(asm.R1)
@@ -932,15 +1077,15 @@ func (p *ProgramBuilder) tailCall(ctx *Variable, mapName string, fd int, value i
 			p.setError(err)
 		}
 
-		p.insts = append(p.insts,
+		p.insts = p.appendInsts(p.insts,
 			asm.Mov.Imm(asm.R3, i),
 		)
 	}
 
-	p.insts = append(p.insts,
+	p.insts = p.appendInsts(p.insts,
 		asm.LoadMapPtr(asm.R2, fd).WithReference(mapName),
 	)
-	p.insts = append(p.insts, p.CallFn(asm.FnTailCall)...)
+	p.insts = p.appendInsts(p.insts, p.CallFn(asm.FnTailCall)...)
 
 	ret.setReg(asm.R0)
 }
@@ -957,47 +1102,53 @@ func (p *ProgramBuilder) TailCall(ctx *Variable, mapName string, value interface
 
 // MapLookup looks up a value in a map
 func (p *ProgramBuilder) MapLookup(mapName string, key *Variable, value *Variable) {
-	key.ptrReg(asm.R2)
+	p.sourceCtx = newsourceContext("MapLookup", mapName, key, value)
+
+	key.toPtrReg(asm.R2)
 
 	// be sure that R1 is not used by a ctx variable
 	p.invalidateReg(asm.R1)
 
-	p.insts = append(p.insts,
+	p.insts = p.appendInsts(p.insts,
 		asm.LoadMapPtr(asm.R1, 0).WithReference(mapName),
 	)
-	p.insts = append(p.insts, p.CallFn(asm.FnMapLookupElem)...)
+	p.insts = p.appendInsts(p.insts, p.CallFn(asm.FnMapLookupElem)...)
 
 	value.setReg(asm.R0)
 }
 
 // MapLookupFD looks up a value in a map with a file descriptor
 func (p *ProgramBuilder) MapLookupFD(fd int, key *Variable, value *Variable) {
-	key.ptrReg(asm.R2)
+	p.sourceCtx = newsourceContext("MapLookupFD", fd, key, value)
+
+	key.toPtrReg(asm.R2)
 
 	// be sure that R1 is not used by a ctx variable
 	p.invalidateReg(asm.R1)
 
-	p.insts = append(p.insts,
+	p.insts = p.appendInsts(p.insts,
 		asm.LoadMapPtr(asm.R1, fd),
 	)
-	p.insts = append(p.insts, p.CallFn(asm.FnMapLookupElem)...)
+	p.insts = p.appendInsts(p.insts, p.CallFn(asm.FnMapLookupElem)...)
 
 	value.setReg(asm.R0)
 }
 
 // MapUpdate updates a value in a map
 func (p *ProgramBuilder) MapUpdate(mapName string, key *Variable, value *Variable, ret *Variable, kind MapUpdateType) {
-	key.ptrReg(asm.R2)
-	value.ptrReg(asm.R3)
+	p.sourceCtx = newsourceContext("MapUpdate", mapName, key, value)
+
+	key.toPtrReg(asm.R2)
+	value.toPtrReg(asm.R3)
 
 	// be sure that R1 is not used by a ctx variable
 	p.invalidateReg(asm.R1)
 
-	p.insts = append(p.insts,
+	p.insts = p.appendInsts(p.insts,
 		asm.Mov.Imm(asm.R4, int32(kind)),
 		asm.LoadMapPtr(asm.R1, 0).WithReference(mapName),
 	)
-	p.insts = append(p.insts, p.CallFn(asm.FnMapUpdateElem)...)
+	p.insts = p.appendInsts(p.insts, p.CallFn(asm.FnMapUpdateElem)...)
 
 	if ret != nil {
 		ret.setReg(asm.R0)
@@ -1006,15 +1157,17 @@ func (p *ProgramBuilder) MapUpdate(mapName string, key *Variable, value *Variabl
 
 // MapDelete deletes a value in a map
 func (p *ProgramBuilder) MapDelete(mapName string, key *Variable, ret *Variable) {
-	key.ptrReg(asm.R2)
+	p.sourceCtx = newsourceContext("MapDelete", mapName, key)
+
+	key.toPtrReg(asm.R2)
 
 	// be sure that R1 is not used by a ctx variable
 	p.invalidateReg(asm.R1)
 
-	p.insts = append(p.insts,
+	p.insts = p.appendInsts(p.insts,
 		asm.LoadMapPtr(asm.R1, 0).WithReference(mapName),
 	)
-	p.insts = append(p.insts, p.CallFn(asm.FnMapDeleteElem)...)
+	p.insts = p.appendInsts(p.insts, p.CallFn(asm.FnMapDeleteElem)...)
 
 	if ret != nil {
 		ret.setReg(asm.R0)
@@ -1036,6 +1189,8 @@ func (p *ProgramBuilder) IfThen(cond Condition, then func()) {
 
 // IfThenElse executes a condition and then or else
 func (p *ProgramBuilder) IfThenElse(cond Condition, then func(), els func()) {
+	p.setSourceCtx("IfThenElse", cond, then, els)
+
 	var (
 		jsg               = p.jmpSymGen.enterBlock()
 		endifSym, elseSym = jsg.getSymbol("endif"), jsg.getSymbol("else")
@@ -1058,7 +1213,7 @@ func (p *ProgramBuilder) IfThenElse(cond Condition, then func(), els func()) {
 		then()
 	}
 
-	p.insts = append(p.insts,
+	p.insts = p.appendInsts(p.insts,
 		asm.Ja.Label(endifSym).WithSymbol(elseSym),
 	)
 
@@ -1079,6 +1234,8 @@ func (p *ProgramBuilder) onRegExausted() {
 
 // NewNumberVar creates a new number variable
 func (p *ProgramBuilder) NewNumberVar(kind VariableType, value int64) *Variable {
+	p.setSourceCtx("NewNumberVar", kind, value)
+
 	variable := newVariable(kind, math.MaxInt16, RNULL, p)
 
 	regValue, err := p.regAlloc.Alloc()
@@ -1089,11 +1246,11 @@ func (p *ProgramBuilder) NewNumberVar(kind VariableType, value int64) *Variable 
 
 	switch kind {
 	case Int64Type, UInt64Type:
-		p.insts = append(p.insts,
+		p.insts = p.appendInsts(p.insts,
 			asm.LoadImm(regValue, value, asm.DWord),
 		)
 	default:
-		p.insts = append(p.insts,
+		p.insts = p.appendInsts(p.insts,
 			asm.Mov.Imm(regValue, int32(value)),
 		)
 	}
@@ -1104,8 +1261,10 @@ func (p *ProgramBuilder) NewNumberVar(kind VariableType, value int64) *Variable 
 
 // NewByteArrayVar creates a new byte array variable
 func (p *ProgramBuilder) NewByteArrayVar(value []byte) *Variable {
+	p.setSourceCtx("NewByteArrayVar", value)
+
 	addr, insts := p.stackBytes(value)
-	p.insts = append(p.insts, insts...)
+	p.insts = p.appendInsts(p.insts, insts...)
 
 	variable := newVariable(PtrType, math.MaxInt16, RNULL, p)
 
@@ -1115,7 +1274,7 @@ func (p *ProgramBuilder) NewByteArrayVar(value []byte) *Variable {
 	}
 	variable.reg = regValue
 
-	p.insts = append(p.insts,
+	p.insts = p.appendInsts(p.insts,
 		asm.Mov.Reg(regValue, asm.RFP),
 		asm.Add.Imm(regValue, int32(addr)),
 	)
@@ -1127,6 +1286,8 @@ func (p *ProgramBuilder) NewByteArrayVar(value []byte) *Variable {
 
 // NewPtrVar creates a new pointer variable
 func (p *ProgramBuilder) NewPtrVar() *Variable {
+	p.setSourceCtx("NewPtrVar")
+
 	variable := newVariable(PtrType, math.MaxInt16, RNULL, p)
 
 	regValue, err := p.regAlloc.Alloc()
@@ -1142,6 +1303,8 @@ func (p *ProgramBuilder) NewPtrVar() *Variable {
 
 // NewCtxVar creates a new context variable
 func (p *ProgramBuilder) NewCtxVar() *Variable {
+	p.setSourceCtx("NewCtxVar")
+
 	// be sure that R1 is not used by another ctx variable
 	p.invalidateReg(asm.R1)
 
@@ -1167,6 +1330,8 @@ func (p *ProgramBuilder) newVarReg(kind VariableType) (*Variable, asm.Register) 
 
 // NewVar creates a new variable
 func (p *ProgramBuilder) NewVar(kind VariableType) *Variable {
+	p.setSourceCtx("NewVar", kind)
+
 	switch t := kind; t {
 	case Int8Type, UInt8Type, Int16Type, UInt16Type, Int32Type, UInt32Type, Int64Type, UInt64Type:
 		return p.NewNumberVar(t, 0)
@@ -1181,6 +1346,8 @@ func (p *ProgramBuilder) NewVar(kind VariableType) *Variable {
 
 // NewVarV creates a new variable from a value
 func (p *ProgramBuilder) NewVarV(value interface{}) *Variable {
+	p.setSourceCtx("NewVarV", value)
+
 	switch v := value.(type) {
 	case int8:
 		return p.NewNumberVar(Int8Type, int64(v))
