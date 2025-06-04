@@ -120,7 +120,7 @@ func TestBuilderRegAlloc(t *testing.T) {
 
 	assert.Equal(t, 9, len(builder.regAlloc.availables))
 
-	for i := MIN_VAR_REG; i <= MAX_VAR_REG; i++ {
+	for i := asm.R1; i <= asm.R9; i++ {
 		v1 := builder.NewNumberVar(Int32Type, 1)
 		assert.Equal(t, int(MAX_VAR_REG-i), len(builder.regAlloc.availables))
 		assert.NotEqual(t, RNULL, v1.reg)
@@ -1226,7 +1226,7 @@ func TestBuilderStrCmp(t *testing.T) {
 }
 
 func TestBuilderStrContains(t *testing.T) {
-	t.Run("str-contains-static-ok1", func(t *testing.T) {
+	t.Run("str-contains-static", func(t *testing.T) {
 		var prog Program
 		builder := prog.Edit(ProgramBuilderOpts{})
 
@@ -1251,7 +1251,7 @@ func TestBuilderStrContains(t *testing.T) {
 		})
 	})
 
-	t.Run("str-contains-static-ok2", func(t *testing.T) {
+	t.Run("str-contains-static", func(t *testing.T) {
 		var prog Program
 		builder := prog.Edit(ProgramBuilderOpts{})
 
@@ -1276,7 +1276,7 @@ func TestBuilderStrContains(t *testing.T) {
 		})
 	})
 
-	t.Run("str-contains-static-ko1", func(t *testing.T) {
+	t.Run("str-contains-static", func(t *testing.T) {
 		var prog Program
 		builder := prog.Edit(ProgramBuilderOpts{})
 
@@ -1301,7 +1301,7 @@ func TestBuilderStrContains(t *testing.T) {
 		})
 	})
 
-	t.Run("str-contains-static-ko2", func(t *testing.T) {
+	t.Run("str-contains-static", func(t *testing.T) {
 		var prog Program
 		builder := prog.Edit(ProgramBuilderOpts{})
 
@@ -1327,7 +1327,7 @@ func TestBuilderStrContains(t *testing.T) {
 		})
 	})
 
-	t.Run("str-contains-static-ok3", func(t *testing.T) {
+	t.Run("str-contains-static", func(t *testing.T) {
 		var prog Program
 		builder := prog.Edit(ProgramBuilderOpts{})
 
@@ -1338,6 +1338,66 @@ func TestBuilderStrContains(t *testing.T) {
 			builder.StrStaticContains(var1, 10, var2, "zer"),
 			func() {
 				builder.Printk("ok")
+			},
+		)
+
+		builder.IfThen(builder.Equal(var2, 1),
+			func() {
+				builder.Printk("ok")
+			},
+		)
+
+		builder.Return(0)
+
+		err := builder.Commit()
+		require.Nil(t, err)
+
+		runProg(t, &prog, nil, func(_ *VM, output string) {
+			assert.Equal(t, "ok", output)
+		})
+	})
+
+	t.Run("str-contains-static", func(t *testing.T) {
+		var prog Program
+		builder := prog.Edit(ProgramBuilderOpts{})
+
+		var1 := builder.NewVarV("aaaaaaaaaaaaaaaaaaaaaaazerty")
+		var2 := builder.NewVarV(uint8(0))
+
+		builder.IfThen(
+			builder.StrStaticContains(var1, 10, var2, "zer"),
+			func() {
+				builder.Printk("ok")
+			},
+		)
+
+		builder.IfThen(builder.Equal(var2, 1),
+			func() {
+				builder.Printk("ko")
+			},
+		)
+
+		builder.Return(0)
+
+		err := builder.Commit()
+		require.Nil(t, err)
+
+		runProg(t, &prog, nil, func(_ *VM, output string) {
+			assert.Equal(t, "ko", output)
+		})
+	})
+
+	t.Run("str-contains-static", func(t *testing.T) {
+		var prog Program
+		builder := prog.Edit(ProgramBuilderOpts{})
+
+		var1 := builder.NewVarV("azerty")
+		var2 := builder.NewVarV(uint8(0))
+
+		builder.IfThen(
+			builder.StrStaticContains(var1, 10, var2, "eer"),
+			func() {
+				builder.Printk("ko")
 			},
 		)
 
@@ -1357,23 +1417,23 @@ func TestBuilderStrContains(t *testing.T) {
 		})
 	})
 
-	t.Run("str-contains-static-ko3", func(t *testing.T) {
+	t.Run("str-contains-static", func(t *testing.T) {
 		var prog Program
 		builder := prog.Edit(ProgramBuilderOpts{})
 
-		var1 := builder.NewVarV("aaaaaaaaaaaaaaaaaaaaaaazerty")
+		var1 := builder.NewVarV("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaazerty")
 		var2 := builder.NewVarV(uint8(0))
 
 		builder.IfThen(
-			builder.StrStaticContains(var1, 10, var2, "zer"),
+			builder.StrStaticContains(var1, 10, var2, "eer"),
 			func() {
-				builder.Printk("ok")
+				builder.Printk("ko")
 			},
 		)
 
-		builder.IfThen(builder.Equal(var2, 0),
+		builder.IfThen(builder.Equal(var2, 1),
 			func() {
-				builder.Printk("ko")
+				builder.Printk("ok")
 			},
 		)
 
@@ -1383,7 +1443,7 @@ func TestBuilderStrContains(t *testing.T) {
 		require.Nil(t, err)
 
 		runProg(t, &prog, nil, func(_ *VM, output string) {
-			assert.Equal(t, "ko", output)
+			assert.Equal(t, "ok", output)
 		})
 	})
 }

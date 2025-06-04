@@ -874,24 +874,27 @@ func (p *ProgramBuilder) StrStaticContains(var1 *Variable, unroll int, overflow 
 
 		seed := len(p.insts)
 
-		symbolFnc := func(i int16) string {
-			return fmt.Sprintf("str-contains-next-%d-%d", seed, i)
+		symbolFnc := func(prefix string, i int16) string {
+			return fmt.Sprintf("str-contains-%s-%d-%d", prefix, seed, i)
 		}
 
 		end := int16(unroll - len(str))
-
-		var lastJump bool
+		endSymbol := symbolFnc("end", 0)
 
 		for i := int16(0); i != end; i++ {
 			for j := int16(0); j != int16(len(str)); j++ {
 				var symbol string
 				if j == 0 {
-					symbol = symbolFnc(i)
+					symbol = symbolFnc("next", i)
 				}
 
-				nextSymbol := symbolFnc(i + 1)
+				nextSymbol := symbolFnc("next", i+1)
 				if i >= end-1 {
-					nextSymbol = falseSym
+					if overflow != nil {
+						nextSymbol = endSymbol
+					} else {
+						nextSymbol = falseSym
+					}
 				}
 
 				p.insts = p.appendInsts(p.insts,
@@ -904,7 +907,6 @@ func (p *ProgramBuilder) StrStaticContains(var1 *Variable, unroll int, overflow 
 					p.insts = p.appendInsts(p.insts,
 						asm.Ja.Label(trueSym),
 					)
-					lastJump = true
 				}
 			}
 		}
@@ -912,11 +914,10 @@ func (p *ProgramBuilder) StrStaticContains(var1 *Variable, unroll int, overflow 
 		if overflow != nil {
 			reg := overflow.load()
 			p.insts = p.appendInsts(p.insts,
-				asm.LoadImm(reg, 1, asm.Byte),
+				asm.Mov.Imm(reg, 1).WithSymbol(endSymbol),
+				asm.Ja.Label(falseSym),
 			)
-		}
-
-		if !lastJump {
+		} else {
 			p.insts = p.appendInsts(p.insts,
 				asm.Ja.Label(falseSym),
 			)
