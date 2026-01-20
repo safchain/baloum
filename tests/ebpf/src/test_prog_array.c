@@ -36,9 +36,9 @@ int test_tail_call()
 {
     struct pt_regs ctx = {};
 
-    bpf_tail_call(&ctx, &tail_calls, 0);
+    bpf_tail_call(&ctx, &tail_calls, 1);
 
-    // shouldn't be executed
+    // shouldn't be executed but in case of failure
     u64 key = 0;
     char *entry = bpf_map_lookup_elem(&data, &key);
     if (!entry)

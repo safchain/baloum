@@ -19,81 +19,38 @@ package baloum
 import (
 	"testing"
 
+	"github.com/cilium/ebpf/asm"
 	"github.com/stretchr/testify/assert"
 )
 
-func TestStackAlloc(t *testing.T) {
-	t.Run("success1", func(t *testing.T) {
+func TestDagVerifier(t *testing.T) {
+	t.Run("ko", func(t *testing.T) {
 		var prog Program
 
-		addr, err := prog.StackAlloc(512)
-		assert.Nil(t, err)
-		assert.Equal(t, int16(-512), addr)
+		prog.Append(
+			asm.Ja.Label("jump1"),
+			asm.Mov.Imm(asm.R1, 1).WithSymbol("jump2"),
+			asm.Mov.Imm(asm.R1, 1).WithSymbol("jump1"),
+			asm.Ja.Label("jump2"),
+		)
+
+		err := prog.Prepare(4096)
+		assert.Error(t, err)
 	})
 
-	t.Run("full-one-block", func(t *testing.T) {
+	t.Run("ok", func(t *testing.T) {
 		var prog Program
 
-		addr, err := prog.StackAlloc(512)
-		assert.Nil(t, err)
-		assert.Equal(t, int16(-512), addr)
+		prog.Append(
+			asm.Ja.Label("jump1"),
+			asm.Mov.Imm(asm.R1, 1).WithSymbol("jump2"),
+			asm.Ja.Label("jump3"),
+			asm.Mov.Imm(asm.R1, 1).WithSymbol("jump1"),
+			asm.Ja.Label("jump2"),
+			asm.Mov.Imm(asm.R1, 1).WithSymbol("jump3"),
+		)
 
-		_, err = prog.StackAlloc(1)
-		assert.NotNil(t, err)
-	})
-
-	t.Run("one-block-reuse", func(t *testing.T) {
-		var prog Program
-
-		addr, err := prog.StackAlloc(512)
-		assert.Nil(t, err)
-		assert.Equal(t, int16(-512), addr)
-
-		prog.StackFree(addr)
-
-		addr, err = prog.StackAlloc(512)
-		assert.Nil(t, err)
-		assert.Equal(t, int16(-512), addr)
-	})
-
-	t.Run("two-blocks", func(t *testing.T) {
-		var prog Program
-
-		addr, err := prog.StackAlloc(256)
-		assert.Nil(t, err)
-		assert.Equal(t, int16(-256), addr)
-
-		addr, err = prog.StackAlloc(256)
-		assert.Nil(t, err)
-		assert.Equal(t, int16(-512), addr)
-	})
-
-	t.Run("three-blocks-with-free", func(t *testing.T) {
-		var prog Program
-
-		addr1, err := prog.StackAlloc(256)
-		assert.Nil(t, err)
-		assert.Equal(t, int16(-256), addr1)
-
-		addr2, err := prog.StackAlloc(256)
-		assert.Nil(t, err)
-		assert.Equal(t, int16(-512), addr2)
-
-		prog.StackFree(addr1)
-
-		addr3, err := prog.StackAlloc(128)
-		assert.Nil(t, err)
-		assert.Equal(t, int16(-128), addr3)
-
-		addr4, err := prog.StackAlloc(32)
-		assert.Nil(t, err)
-		assert.Equal(t, int16(-160), addr4)
-
-		addr5, err := prog.StackAlloc(32)
-		assert.Nil(t, err)
-		assert.Equal(t, int16(-192), addr5)
-
-		_, err = prog.StackAlloc(65)
-		assert.NotNil(t, err)
+		err := prog.Prepare(4096)
+		assert.NoError(t, err)
 	})
 }

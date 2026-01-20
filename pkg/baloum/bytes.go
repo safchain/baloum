@@ -17,53 +17,134 @@ limitations under the License.
 package baloum
 
 import (
+	"encoding"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"unsafe"
 )
 
-var ByteOrder binary.ByteOrder
-
-func ToBytes(data interface{}, size int) ([]byte, error) {
+// ToBytes converts an object to a byte slice
+func Str2Bytes(str string) []byte {
+	b := make([]byte, len(str)+1) // \0
+	copy(b, []byte(str))
+	return b
+}
+// ToBytes converts an object to a byte slice
+func ToBytes(obj interface{}, size int) ([]byte, error) {
 	if size == 0 {
 		return nil, errors.New("data size error")
 	}
 
+	if m, ok := obj.(encoding.BinaryMarshaler); ok {
+		b, err := m.MarshalBinary()
+		if err != nil {
+			return nil, err
+		}
+		if len(b) != size {
+			return nil, fmt.Errorf("data size error : size mismatch, %d vs %d", len(b), size)
+		}
+		return b, nil
+	}
+
 	b := make([]byte, size)
 
-	switch t := data.(type) {
+	switch t := obj.(type) {
+	case int8:
+		b[0] = byte(t)
 	case uint8:
 		b[0] = t
+	case int16:
+		if size != 2 {
+			return nil, fmt.Errorf("data size error, size mismatch: int16 vs %d", size)
+		}
+		binary.NativeEndian.PutUint16(b, uint16(t))
 	case uint16:
 		if size != 2 {
-			return nil, errors.New("data size error : size mismatch")
+			return nil, fmt.Errorf("data size error, size mismatch: uint16 vs %d", size)
 		}
-		ByteOrder.PutUint16(b, t)
+		binary.NativeEndian.PutUint16(b, t)
+	case int32:
+		if size != 4 {
+			return nil, fmt.Errorf("data size error, size mismatch: int32 vs %d", size)
+		}
+		binary.NativeEndian.PutUint32(b, uint32(t))
 	case uint32:
 		if size != 4 {
-			return nil, errors.New("data size error : size mismatch")
+			return nil, fmt.Errorf("data size error, size mismatch: uint32 vs %d", size)
 		}
-		ByteOrder.PutUint32(b, t)
+		binary.NativeEndian.PutUint32(b, t)
+	case int64:
+		if size != 8 {
+			return nil, fmt.Errorf("data size error, size mismatch: int64 vs %d", size)
+		}
+		binary.NativeEndian.PutUint64(b, uint64(t))
 	case uint64:
 		if size != 8 {
-			return nil, errors.New("data size error : size mismatch")
+			return nil, fmt.Errorf("data size error, size mismatch: uint64 vs %d", size)
 		}
-		ByteOrder.PutUint64(b, t)
+		binary.NativeEndian.PutUint64(b, t)
 	case []byte:
 		if len(t) != size {
-			return nil, errors.New("data size error : size mismatch")
-		}
-		copy(b, t)
-	case string:
-		if len(t) > size {
-			return nil, errors.New("data size error : size mismatch")
+			return nil, fmt.Errorf("data size error, size mismatch: %d vs %d", len(t), size)
 		}
 		copy(b, t)
 	default:
 		return nil, errors.New("data size error : unknown type")
 	}
 	return b, nil
+}
+
+// FromBytes converts a byte slice to an object
+func FromBytes(data []byte, obj interface{}) error {
+	if m, ok := obj.(encoding.BinaryUnmarshaler); ok {
+		return m.UnmarshalBinary(data)
+	}
+
+	switch t := obj.(type) {
+	case *int8:
+		*t = int8(data[0])
+	case *uint8:
+		*t = data[0]
+	case *int16:
+		if len(data) != 2 {
+			return fmt.Errorf("data size error, size mismatch: int16 vs %d", len(data))
+		}
+		*t = int16(binary.NativeEndian.Uint16(data))
+	case *uint16:
+		if len(data) != 2 {
+			return fmt.Errorf("data size error, size mismatch: uint16 vs %d", len(data))
+		}
+		*t = binary.NativeEndian.Uint16(data)
+	case *int32:
+		if len(data) != 4 {
+			return fmt.Errorf("data size error, size mismatch: int32 vs %d", len(data))
+		}
+		*t = int32(binary.NativeEndian.Uint32(data))
+	case *uint32:
+		if len(data) != 4 {
+			return fmt.Errorf("data size error, size mismatch: uint32 vs %d", len(data))
+		}
+		*t = binary.NativeEndian.Uint32(data)
+	case *int64:
+		if len(data) != 8 {
+			return fmt.Errorf("data size error, size mismatch: int64 vs %d", len(data))
+		}
+		*t = int64(binary.NativeEndian.Uint64(data))
+	case *uint64:
+		if len(data) != 8 {
+			return fmt.Errorf("data size error, size mismatch: uint64 vs %d", len(data))
+		}
+		*t = binary.NativeEndian.Uint64(data)
+	case []byte:
+		if len(data) != len(t) {
+			return fmt.Errorf("data size error, size mismatch: %d vs %d", len(data), len(t))
+		}
+		copy(t, data)
+	default:
+		return errors.New("data size error : unknown type")
+	}
+	return nil
 }
 
 // GetHostByteOrder guesses the hosts byte order
@@ -77,13 +158,4 @@ func GetHostByteOrder() binary.ByteOrder {
 	}
 
 	return binary.BigEndian
-}
-
-func UnmarshalCtx(data []byte) [16]uint16 {
-	fmt.Printf("ZZZZZZ: %+v\n", data)
-	return [16]uint16{}
-}
-
-func init() {
-	ByteOrder = GetHostByteOrder()
 }

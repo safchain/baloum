@@ -17,6 +17,7 @@ limitations under the License.
 package baloum
 
 import (
+	"encoding/binary"
 	"log"
 	"os"
 	"testing"
@@ -49,7 +50,7 @@ func TestPerCPUMapArray(t *testing.T) {
 	assert.Zero(t, code)
 	assert.Nil(t, err)
 
-	data, err := vm.Map("cache_cpu").Lookup(uint64(4))
+	data, err := vm.Map("cache_cpu").LookupBytes(uint64(4))
 	assert.Nil(t, err)
-	assert.Equal(t, uint64(44), ByteOrder.Uint64(data))
+	assert.Equal(t, uint64(44), binary.NativeEndian.Uint64(data))
 }

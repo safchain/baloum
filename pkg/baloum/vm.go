@@ -38,8 +38,7 @@ type vmState struct {
 	stack []byte
 }
 
-type program []asm.Instruction
-
+// VM is the main struct for the VM
 type VM struct {
 	Spec      *ebpf.CollectionSpec
 	Opts      Opts
@@ -55,6 +54,7 @@ type VM struct {
 	tailCails int
 }
 
+// NewVM creates a new VM
 func NewVM(spec *ebpf.CollectionSpec, opts Opts) *VM {
 	opts.applyDefault()
 
@@ -89,14 +89,17 @@ func (vm *VM) loadState(state *vmState) {
 	vm.regs = state.regs
 }
 
+// Map returns a map by name
 func (vm *VM) Map(name string) *Map {
 	return vm.maps.mapByName[name]
 }
 
+// Heap returns the heap
 func (vm *VM) Heap() *Heap {
 	return vm.heap
 }
 
+// getMem returns the memory at the given address
 func (vm *VM) getMem(addr uint64) ([]byte, uint64, error) {
 	// stack
 	if addr&HEAP_ADDR_MASK == 0 {
@@ -107,6 +110,7 @@ func (vm *VM) getMem(addr uint64) ([]byte, uint64, error) {
 	return vm.heap.GetMem(addr)
 }
 
+// GetBytes returns the bytes at the given address
 func (vm *VM) GetBytes(addr uint64, size uint64) ([]byte, error) {
 	bytes, addr, err := vm.getMem(addr)
 	if err != nil {
@@ -118,39 +122,43 @@ func (vm *VM) GetBytes(addr uint64, size uint64) ([]byte, error) {
 	}
 
 	if int(size) > len(bytes[addr:]) {
-		return nil, errors.New("out of bound")
+		return nil, errors.New("get bytes out of bound")
 	}
 
 	return bytes[addr : addr+size], nil
 }
 
+// GetUint64 returns the uint64 at the given address
 func (vm *VM) GetUint64(addr uint64) (uint64, error) {
 	bytes, err := vm.GetBytes(addr, 8)
 	if err != nil {
 		return 0, err
 	}
 
-	return ByteOrder.Uint64(bytes), nil
+	return binary.NativeEndian.Uint64(bytes), nil
 }
 
+// GetUint32 returns the uint32 at the given address
 func (vm *VM) GetUint32(addr uint64) (uint32, error) {
 	bytes, err := vm.GetBytes(addr, 4)
 	if err != nil {
 		return 0, err
 	}
 
-	return ByteOrder.Uint32(bytes), nil
+	return binary.NativeEndian.Uint32(bytes), nil
 }
 
+// GetUint16 returns the uint16 at the given address
 func (vm *VM) GetUint16(addr uint64) (uint16, error) {
 	bytes, err := vm.GetBytes(addr, 2)
 	if err != nil {
 		return 0, err
 	}
 
-	return ByteOrder.Uint16(bytes), nil
+	return binary.NativeEndian.Uint16(bytes), nil
 }
 
+// GetUint8 returns the uint8 at the given address
 func (vm *VM) GetUint8(addr uint64) (uint8, error) {
 	bytes, err := vm.GetBytes(addr, 1)
 	if err != nil {
@@ -160,6 +168,7 @@ func (vm *VM) GetUint8(addr uint64) (uint8, error) {
 	return uint8(bytes[0]), nil
 }
 
+// GetString returns the string at the given address
 func (vm *VM) GetString(addr uint64) (string, error) {
 	data, addr, err := vm.getMem(addr)
 	if err != nil {
@@ -169,37 +178,42 @@ func (vm *VM) GetString(addr uint64) (string, error) {
 	return Bytes2String(data[addr:]), nil
 }
 
+// SetUint64 sets the uint64 at the given address
 func (vm *VM) SetUint64(addr uint64, value uint64) error {
 	bytes, err := vm.GetBytes(addr, 8)
 	if err != nil {
 		return err
 	}
-	ByteOrder.PutUint64(bytes, value)
+
+	binary.NativeEndian.PutUint64(bytes, value)
 
 	return nil
 }
 
+// SetUint32 sets the uint32 at the given address
 func (vm *VM) SetUint32(addr uint64, value uint32) error {
 	bytes, err := vm.GetBytes(addr, 4)
 	if err != nil {
 		return err
 	}
-	ByteOrder.PutUint32(bytes, value)
+	binary.NativeEndian.PutUint32(bytes, value)
 
 	return nil
 }
 
+// SetUint16 sets the uint16 at the given address
 func (vm *VM) SetUint16(addr uint64, value uint16) error {
 	bytes, err := vm.GetBytes(addr, 2)
 	if err != nil {
 		return err
 	}
 
-	ByteOrder.PutUint16(bytes, value)
+	binary.NativeEndian.PutUint16(bytes, value)
 
 	return nil
 }
 
+// SetUint8 sets the uint8 at the given address
 func (vm *VM) SetUint8(addr uint64, value uint8) error {
 	bytes, err := vm.GetBytes(addr, 1)
 	if err != nil {
@@ -211,6 +225,7 @@ func (vm *VM) SetUint8(addr uint64, value uint8) error {
 	return nil
 }
 
+// SetBytes sets the bytes at the given address
 func (vm *VM) SetBytes(addr uint64, value []byte, size uint64) error {
 	bytes, err := vm.GetBytes(addr, size)
 	if err != nil {
@@ -418,6 +433,7 @@ func (vm *VM) GetMapByName(name string) *Map {
 	return vm.maps.GetMapByName(name)
 }
 
+// RunInstructions runs the instructions
 func (vm *VM) RunInstructions(ctx Context, insts []asm.Instruction) (int64, error) {
 	// prepare the instruction
 	insts = resolveSymbolReferences(insts)
@@ -442,7 +458,8 @@ func (vm *VM) RunInstructions(ctx Context, insts []asm.Instruction) (int64, erro
 			vm.Opts.Observer.ObserveInst(vm, pc, &inst)
 		}
 
-		vm.Opts.Logger.Debugf("%d > %v (%d)", pc, inst, inst.Size())
+		// TODO(safchain) make debugger a inst observer
+		vm.Opts.Logger.Debugf("%d > %v [%s] (%d)", pc, inst, inst.Symbol(), inst.Size())
 		pc += int(inst.Size() / 8)
 
 		opcode := inst.OpCode
@@ -485,10 +502,10 @@ func (vm *VM) RunInstructions(ctx Context, insts []asm.Instruction) (int64, erro
 					if _map = vm.maps.GetMapByName(inst.Reference()); _map == nil {
 						return -1, fmt.Errorf("map not found: %v", inst.Reference())
 					}
-				} else if _map = vm.maps.GetMapById(int(inst.Constant)); _map == nil {
+				} else if _map = vm.maps.GetMapByFd(int(inst.Constant)); _map == nil {
 					return -1, fmt.Errorf("map not found: %v", inst.Src)
 				}
-				vm.regs[inst.Dst] = uint64(_map.id)
+				vm.regs[inst.Dst] = uint64(_map.fd)
 			} else if isStrSection(inst.Reference()) {
 				offset := uint64(inst.Constant) >> 32
 				addr, err := vm.getStringAddr(inst.Reference(), offset)
@@ -950,13 +967,13 @@ func (vm *VM) RunInstructions(ctx Context, insts []asm.Instruction) (int64, erro
 
 				switch inst.Constant {
 				case 16:
-					ByteOrder.PutUint16(buff[:2], uint16(vm.regs[inst.Dst]))
+					binary.NativeEndian.PutUint16(buff[:2], uint16(vm.regs[inst.Dst]))
 					vm.regs[inst.Dst] = uint64(bo.Uint16(buff[:2]))
 				case 32:
-					ByteOrder.PutUint32(buff[:4], uint32(vm.regs[inst.Dst]))
+					binary.NativeEndian.PutUint32(buff[:4], uint32(vm.regs[inst.Dst]))
 					vm.regs[inst.Dst] = uint64(bo.Uint32(buff[:4]))
 				case 64:
-					ByteOrder.PutUint64(buff[:8], uint64(vm.regs[inst.Dst]))
+					binary.NativeEndian.PutUint64(buff[:8], uint64(vm.regs[inst.Dst]))
 					vm.regs[inst.Dst] = uint64(bo.Uint64(buff[:8]))
 				}
 			} else {
@@ -968,6 +985,7 @@ func (vm *VM) RunInstructions(ctx Context, insts []asm.Instruction) (int64, erro
 	return ErrorCode, errors.New("unexpected error")
 }
 
+// LoadMap loads a map by name
 func (vm *VM) LoadMap(name string) (*Map, error) {
 	if err := vm.maps.LoadMap(vm.Spec, name); err != nil {
 		return nil, err
@@ -975,6 +993,7 @@ func (vm *VM) LoadMap(name string) (*Map, error) {
 	return vm.maps.mapByName[name], nil
 }
 
+// LoadMaps loads multiple maps by name
 func (vm *VM) LoadMaps(names ...string) error {
 	for _, name := range names {
 		if _, err := vm.LoadMap(name); err != nil {
@@ -984,6 +1003,7 @@ func (vm *VM) LoadMaps(names ...string) error {
 	return nil
 }
 
+// LoadMapsUsedBy loads multiple maps by name
 func (vm *VM) LoadMapsUsedBy(section ...string) error {
 	return vm.maps.LoadMaps(vm.Spec, section...)
 }
@@ -1013,6 +1033,23 @@ func (vm *VM) loadSection(section string) (*ebpf.ProgramSpec, error) {
 	return program, nil
 }
 
+// AddColSpec adds a collection spec to the VM
+func (vm *VM) AddColSpec(colSpec *ebpf.CollectionSpec) error {
+	if err := vm.LoadMaps(); err != nil {
+		return err
+	}
+
+	for _, programSpec := range colSpec.Programs {
+		fmt.Printf("PROG: %s\n", programSpec.Name)
+		fmt.Printf("INST: %+v\n", programSpec.Instructions)
+
+		vm.AddProgram(programSpec)
+	}
+
+	return nil
+}
+
+// Program returns a program by name
 func (vm *VM) Program(name string) (*ebpf.ProgramSpec, uint32) {
 	for i, programSpec := range vm.programs {
 		if programSpec.Name == name {
@@ -1022,14 +1059,16 @@ func (vm *VM) Program(name string) (*ebpf.ProgramSpec, uint32) {
 	return nil, 0
 }
 
+// AddProgram adds a program to the VM
 func (vm *VM) AddProgram(program *ebpf.ProgramSpec) uint32 {
-	// FD is the index in the map of programs + 1
-	fd := uint32(len(vm.programs)) + 1
+	// FD is the index in the map of programs
+	fd := uint32(len(vm.programs))
 	vm.programs = append(vm.programs, program)
 
 	return fd
 }
 
+// LoadProgram loads a program by name
 func (vm *VM) LoadProgram(section string) (uint32, error) {
 	program, err := vm.loadSection(section)
 	if err != nil {
@@ -1040,6 +1079,7 @@ func (vm *VM) LoadProgram(section string) (uint32, error) {
 	return fd, nil
 }
 
+// RunProgram runs a program by name
 func (vm *VM) RunProgram(ctx Context, section string, programType ...ebpf.ProgramType) (int64, error) {
 	program, err := vm.loadSection(section)
 	if err != nil {
@@ -1057,10 +1097,12 @@ func (vm *VM) RunProgram(ctx Context, section string, programType ...ebpf.Progra
 	return vm.RunInstructions(ctx, program.Instructions)
 }
 
+// zeroExtend extends a int32 to a uint64
 func zeroExtend(in int32) uint64 {
 	return uint64(uint32(in))
 }
 
+// JumpOpCode returns the opcode for a jump instruction
 func JumpOpCode(class asm.Class, jumpOp asm.JumpOp, source asm.Source) asm.OpCode {
 	return asm.OpCode(class).SetJumpOp(jumpOp).SetSource(source)
 }

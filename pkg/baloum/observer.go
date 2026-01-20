@@ -18,6 +18,7 @@ package baloum
 
 import "github.com/cilium/ebpf/asm"
 
+// Observer is the type for the observer
 type Observer interface {
 	ObserveInst(vm *VM, pc int, inst *asm.Instruction)
 }

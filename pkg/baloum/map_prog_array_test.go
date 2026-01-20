@@ -17,6 +17,7 @@ limitations under the License.
 package baloum
 
 import (
+	"encoding/binary"
 	"fmt"
 	"log"
 	"os"
@@ -66,7 +67,7 @@ func TestTailCall(t *testing.T) {
 		log.Fatal(err)
 	}
 
-	if _, err = vm.Map("tail_calls").Update(uint32(0), fd, BPF_ANY); err != nil {
+	if _, err = vm.Map("tail_calls").Update(uint32(1), fd, BPF_ANY); err != nil {
 		log.Fatal(err)
 	}
 
@@ -75,7 +76,7 @@ func TestTailCall(t *testing.T) {
 	assert.Equal(t, int64(72), code)
 	assert.Nil(t, err)
 
-	data, err := vm.Map("data").Lookup(uint64(0))
+	data, err := vm.Map("data").LookupBytes(uint64(0))
 	assert.Nil(t, err)
-	assert.Equal(t, uint64(30), ByteOrder.Uint64(data))
+	assert.Equal(t, uint64(30), binary.NativeEndian.Uint64(data))
 }

@@ -27,29 +27,43 @@ import (
 	"github.com/safchain/baloum/pkg/baloum"
 )
 
+// DebugCommand is the type for the debug command
 type DebugCommand string
 
 const (
-	NextCommand           DebugCommand = "n"
-	ContinueCommand       DebugCommand = "c"
-	PrintStackCommand     DebugCommand = "ps"
+	// NextCommand is the command to step to the next instruction
+	NextCommand DebugCommand = "n"
+	// ContinueCommand is the command to continue execution
+	ContinueCommand DebugCommand = "c"
+	// PrintStackCommand is the command to print the stack
+	PrintStackCommand DebugCommand = "ps"
+	// PrintRegistersCommand is the command to print the registers
 	PrintRegistersCommand DebugCommand = "pr"
-	PrintVariableCommand  DebugCommand = "pv"
-	PrintMap              DebugCommand = "pm"
-	PrintCommand          DebugCommand = "p"
+	// PrintVariableCommand is the command to print a variable
+	PrintVariableCommand DebugCommand = "pv"
+	// PrintDataCommand is the command to print data
+	PrintDataCommand DebugCommand = "pd"
+	// PrintMap is the command to print a map
+	PrintMap DebugCommand = "pm"
+	// PrintCommand is the command to print the registers and the stack
+	PrintCommand DebugCommand = "p"
+	// PrintBacktraceCommand is the command to print the backtrace
 	PrintBacktraceCommand DebugCommand = "bt"
 )
 
+// VariableReader is the type for the variable reader
 type VariableReader struct {
 	Size uint64
 	Read func(bytes []byte) interface{}
 }
 
+// BTInst is the type for the backtrace instruction
 type BTInst struct {
 	PC   int
 	Inst asm.Instruction
 }
 
+// Debugger is the type for the debugger
 type Debugger struct {
 	Enabled        bool
 	VariableReader map[string]VariableReader
@@ -58,6 +72,7 @@ type Debugger struct {
 	backtrace      []BTInst
 }
 
+// NewDebugger creates a new debugger
 func NewDebugger(enabled bool, variableReaders map[string]VariableReader) *Debugger {
 	return &Debugger{
 		Enabled:        enabled,
@@ -65,17 +80,25 @@ func NewDebugger(enabled bool, variableReaders map[string]VariableReader) *Debug
 	}
 }
 
-func (d *Debugger) dumpRegister(vm *baloum.VM) {
+func dumpRegister(vm *baloum.VM) {
 	for i, v := range vm.Regs() {
 		if i > 0 {
 			fmt.Printf(", ")
 		}
-		fmt.Printf("R%d: %v", i, v)
+		if i == 10 {
+			fmt.Printf("RFP: %v", v)
+		} else {
+			fmt.Printf("R%d: %v", i, v)
+		}
 	}
 	fmt.Println()
 }
 
-func (d *Debugger) dumpBytes(bytes []byte) {
+func isASCII(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+}
+
+func dumpBytes(bytes []byte, ascii bool) {
 	var notFirst bool
 	for i, b := range bytes {
 		if i%16 == 0 {
@@ -85,13 +108,46 @@ func (d *Debugger) dumpBytes(bytes []byte) {
 			notFirst = true
 			fmt.Printf("%3d    ", i)
 		}
-		fmt.Printf("%03d ", b)
+		if ascii && isASCII(b) {
+			fmt.Printf("..%c ", b)
+		} else {
+			fmt.Printf("%03d ", b)
+		}
 	}
 	fmt.Println()
 }
 
-func (d *Debugger) dumpStack(vm *baloum.VM) {
-	d.dumpBytes(vm.Stack())
+func dumpStack(vm *baloum.VM, args ...string) {
+	ascii := len(args) > 0 && args[len(args)-1] == "c"
+	dumpBytes(vm.Stack(), ascii)
+}
+
+func (d *Debugger) printData(vm *baloum.VM, args ...string) {
+	if len(args) == 0 || args[0][0] != '@' {
+		fmt.Fprintf(os.Stderr, "invalid address\n")
+		return
+	}
+
+	els := strings.Split(args[0][1:], ":")
+	addr, err := strconv.Atoi(els[0])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "invalid address: %s\n", err)
+		return
+	}
+
+	kind := "uint32"
+	if len(els) > 1 {
+		kind = els[1]
+	}
+
+	switch kind {
+	case "uint32":
+		value, err := vm.GetUint32(uint64(addr))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "unable to get data: %s\n", err)
+		}
+		fmt.Printf("%s: %d\n", args[0], value)
+	}
 }
 
 func (d *Debugger) printMap(vm *baloum.VM, args ...string) {
@@ -108,7 +164,7 @@ func (d *Debugger) printMap(vm *baloum.VM, args ...string) {
 
 	it, err := _map.Iterator()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "map lookup error")
+		fmt.Fprintf(os.Stderr, "map lookup error: %s", err)
 		return
 	}
 
@@ -119,10 +175,10 @@ func (d *Debugger) printMap(vm *baloum.VM, args ...string) {
 		}
 
 		fmt.Printf("key:\n")
-		d.dumpBytes(key)
+		dumpBytes(key, false)
 
 		fmt.Printf("value:\n")
-		d.dumpBytes(value)
+		dumpBytes(value, false)
 	}
 }
 
@@ -168,18 +224,20 @@ func (d *Debugger) printVariable(vm *baloum.VM, args ...string) {
 	fmt.Printf(">> %v\n", reader.Read(bytes))
 }
 
-func (d *Debugger) printBacktrace(vm *baloum.VM) {
+func (d *Debugger) printBacktrace() {
 	for _, bt := range d.backtrace {
 		fmt.Printf("%d: %v\n", bt.PC, bt.Inst)
 	}
 }
 
+// Close closes the debugger
 func (d *Debugger) Close() {
 	if d.state != nil {
 		d.state.Close()
 	}
 }
 
+// ObserveInst observes an instruction
 func (d *Debugger) ObserveInst(vm *baloum.VM, pc int, inst *asm.Instruction) {
 	d.backtrace = append(d.backtrace, BTInst{PC: pc, Inst: *inst})
 
@@ -187,7 +245,7 @@ func (d *Debugger) ObserveInst(vm *baloum.VM, pc int, inst *asm.Instruction) {
 		d.state = liner.NewLiner()
 	}
 
-	d.Enabled = d.Enabled || strings.HasPrefix(inst.Symbol(), "debugger")
+	d.Enabled = d.Enabled || strings.HasPrefix(inst.Symbol(), "breakpoint")
 	if !d.Enabled {
 		return
 	}
@@ -215,28 +273,43 @@ LOOP:
 	case ContinueCommand:
 		d.Enabled = false
 	case PrintStackCommand:
-		d.dumpStack(vm)
+		dumpStack(vm, args...)
 		goto LOOP
 	case PrintRegistersCommand:
-		d.dumpRegister(vm)
+		dumpRegister(vm)
 		goto LOOP
 	case PrintVariableCommand:
 		d.printVariable(vm, args...)
 		goto LOOP
+	case PrintDataCommand:
+		d.printData(vm, args...)
+		goto LOOP
 	case PrintBacktraceCommand:
-		d.printBacktrace(vm)
+		d.printBacktrace()
 		goto LOOP
 	case PrintMap:
 		d.printMap(vm, args...)
 		goto LOOP
 	case PrintCommand:
 		fmt.Println("Registers:")
-		d.dumpRegister(vm)
+		dumpRegister(vm)
 		fmt.Println("Stack:")
-		d.dumpStack(vm)
+		dumpStack(vm)
 		goto LOOP
 	default:
 		fmt.Fprintf(os.Stdout, "command unknown !\n")
 		goto LOOP
+	}
+}
+
+// SimpleObserver is the type for the simple observer
+type SimpleObserver struct{}
+
+// ObserveInst observes an instruction
+func (d *SimpleObserver) ObserveInst(vm *baloum.VM, pc int, inst *asm.Instruction) {
+	if strings.HasPrefix(inst.Symbol(), "dump-regs") {
+		dumpRegister(vm)
+	} else if strings.HasPrefix(inst.Symbol(), "dump-stack") {
+		dumpStack(vm)
 	}
 }

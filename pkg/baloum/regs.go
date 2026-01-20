@@ -16,15 +16,22 @@ limitations under the License.
 
 package baloum
 
-import "errors"
+import (
+	"encoding/binary"
+	"errors"
+)
 
 const (
-	REGS_NUM  = 11
+	// REGS_NUM is the number of registers
+	REGS_NUM = 11
+	// REGS_SIZE is the size of the registers
 	REGS_SIZE = REGS_NUM * 8
 )
 
+// Regs is the type for the registers
 type Regs [REGS_NUM]uint64
 
+// Parse parses the registers from a byte slice
 func (r *Regs) Parse(data []byte) error {
 	if len(data) < REGS_SIZE {
 		return errors.New("not enough data")
@@ -32,19 +39,20 @@ func (r *Regs) Parse(data []byte) error {
 
 	var offset int
 	for i := range r {
-		r[i] = ByteOrder.Uint64(data[offset : offset+8])
+		r[i] = binary.NativeEndian.Uint64(data[offset : offset+8])
 		offset += 8
 	}
 
 	return nil
 }
 
+// Bytes returns the registers as a byte slice
 func (r *Regs) Bytes() []byte {
 	data := make([]byte, REGS_SIZE)
 
 	var offset int
 	for _, reg := range r {
-		ByteOrder.PutUint64(data[offset:offset+8], reg)
+		binary.NativeEndian.PutUint64(data[offset:offset+8], reg)
 		offset += 8
 	}
 

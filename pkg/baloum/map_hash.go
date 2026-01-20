@@ -20,16 +20,21 @@ import (
 	"errors"
 )
 
+// MapHashStorage is the type for the map hash storage
 type MapHashStorage struct {
 	vm         *VM
 	maxEntries uint32
-	data       map[string]uint64
+	valueSize  uint32
+
+	data map[string]uint64
 }
 
+// Lookup looks up a key in the map
 func (m *MapHashStorage) Lookup(key []byte) (uint64, error) {
 	return m.data[string(key)], nil
 }
 
+// Update updates a key in the map
 func (m *MapHashStorage) Update(key []byte, value []byte, kind MapUpdateType) (bool, error) {
 	if len(m.data) >= int(m.maxEntries) {
 		return false, nil
@@ -40,13 +45,15 @@ func (m *MapHashStorage) Update(key []byte, value []byte, kind MapUpdateType) (b
 		if kind == BPF_NOEXIST {
 			return false, nil
 		}
-		m.vm.heap.Free(addr)
+		m.vm.SetBytes(addr, value, uint64(m.valueSize))
+	} else {
+		m.data[string(key)] = m.vm.heap.AllocWith(value)
 	}
-	m.data[string(key)] = m.vm.heap.AllocWith(value)
 
 	return true, nil
 }
 
+// Delete deletes a key in the map
 func (m *MapHashStorage) Delete(key []byte) (bool, error) {
 	if addr, exists := m.data[string(key)]; exists {
 		m.vm.heap.Free(addr)
@@ -56,6 +63,7 @@ func (m *MapHashStorage) Delete(key []byte) (bool, error) {
 	return false, nil
 }
 
+// Keys returns the keys of the map
 func (m *MapHashStorage) Keys() ([][]byte, error) {
 	var keys [][]byte
 
@@ -66,18 +74,22 @@ func (m *MapHashStorage) Keys() ([][]byte, error) {
 	return keys, nil
 }
 
+// Read reads the map
 func (m *MapHashStorage) Read() (<-chan []byte, error) {
 	return nil, errors.New("operation not supported")
 }
 
+// Write writes to the map
 func (m *MapHashStorage) Write(data []byte) error {
 	return errors.New("operation not supported")
 }
 
+// NewMapHashStorage creates a new map hash storage
 func NewMapHashStorage(vm *VM, keySize, valueSize, maxEntries, flags uint32) (MapStorage, error) {
 	return &MapHashStorage{
 		vm:         vm,
 		maxEntries: maxEntries,
+		valueSize:  valueSize,
 		data:       make(map[string]uint64),
 	}, nil
 }

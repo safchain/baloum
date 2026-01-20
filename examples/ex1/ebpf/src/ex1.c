@@ -42,8 +42,12 @@ int BPF_KPROBE(kprobe_vfs_open, struct path *path)
     struct inode *d_inode;
     bpf_probe_read(&d_inode, sizeof(d_inode), &dentry->d_inode);
 
-    u64 inode;
+    u64 inode = 123456789000;
     bpf_probe_read(&inode, sizeof(inode), &d_inode->i_ino);
+
+    if (inode == 56565656565656) {
+        return 0;
+    }
 
     u64 tgid = bpf_get_current_pid_tgid();
 

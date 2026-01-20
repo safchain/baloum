@@ -17,27 +17,31 @@ limitations under the License.
 package baloum
 
 import (
+	"encoding/binary"
 	"errors"
 
 	"github.com/cilium/ebpf/asm"
 )
 
 const (
+	// CTX_SIZE is the size of the context
 	CTX_SIZE = 5 * 8 // 5 argument
 )
 
+// Context is the type for the context
 type Context interface {
 	SetRegs(vm *VM)
 }
 
+// StdContext is the type for the standard context
 /*
-struct baloum_ctx {
-	u64 arg0;
-	u64 arg1;
-	u64 arg2;
-	u64 arg3;
-	u64 arg4;
-};
+	struct baloum_ctx {
+		u64 arg0;
+		u64 arg1;
+		u64 arg2;
+		u64 arg3;
+		u64 arg4;
+	};
 */
 type StdContext struct {
 	Arg0 uint64
@@ -47,33 +51,37 @@ type StdContext struct {
 	Arg4 uint64
 }
 
+// Parse parses the context from a byte slice
 func (ctx *StdContext) Parse(data []byte) error {
 	if len(data) < CTX_SIZE {
 		return errors.New("not enough data")
 	}
 
 	var offset int
-	ctx.Arg0 = ByteOrder.Uint64(data[offset : offset+8])
+	ctx.Arg0 = binary.NativeEndian.Uint64(data[offset : offset+8])
 	offset += 8
-	ctx.Arg1 = ByteOrder.Uint64(data[offset : offset+8])
+	ctx.Arg1 = binary.NativeEndian.Uint64(data[offset : offset+8])
 	offset += 8
-	ctx.Arg2 = ByteOrder.Uint64(data[offset : offset+8])
+	ctx.Arg2 = binary.NativeEndian.Uint64(data[offset : offset+8])
 	offset += 8
-	ctx.Arg3 = ByteOrder.Uint64(data[offset : offset+8])
+	ctx.Arg3 = binary.NativeEndian.Uint64(data[offset : offset+8])
 	offset += 8
-	ctx.Arg4 = ByteOrder.Uint64(data[offset : offset+8])
+	ctx.Arg4 = binary.NativeEndian.Uint64(data[offset : offset+8])
 
 	return nil
 }
 
+// SetRegs sets the registers from the context
 func (ctx *StdContext) SetRegs(vm *VM) {
 	vm.regs[asm.R1] = vm.heap.AllocWith(ctx.Bytes())
 }
 
+// RawContext is the type for the raw context
 type RawContext struct {
 	Regs Regs
 }
 
+// SetRegs sets the registers from the context
 func (ctx *RawContext) SetRegs(vm *VM) {
 	vm.regs = ctx.Regs
 }

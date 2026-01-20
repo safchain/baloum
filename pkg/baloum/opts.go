@@ -25,9 +25,11 @@ import (
 )
 
 const (
+	// DEFAULT_STACK_SIZE is the default stack size
 	DEFAULT_STACK_SIZE = 512
 )
 
+// Fncs is the type for the functions
 type Fncs struct {
 	GetCurrentPidTgid func(vm *VM) (uint64, error)
 	KtimeGetNS        func(vm *VM) (uint64, error)
@@ -36,6 +38,7 @@ type Fncs struct {
 	Sleep             func(vm *VM, duration time.Duration) error
 }
 
+// Opts is the type for the options
 type Opts struct {
 	StackSize   int
 	Fncs        Fncs
